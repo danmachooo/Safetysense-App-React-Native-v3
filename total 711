@@ -1,0 +1,65 @@
+ .bundle/config                                     |     2 [32m+[m
+ .eslintrc.js                                       |     4 [32m+[m
+ .gitignore                                         |   103 [32m+[m
+ .prettierrc.js                                     |     7 [32m+[m
+ App.tsx                                            |     3 [32m+[m
+ Gemfile                                            |    10 [32m+[m
+ README.md                                          |    97 [32m+[m
+ __tests__/App.test.tsx                             |    13 [32m+[m
+ android/app/build.gradle                           |   119 [32m+[m
+ android/app/debug.keystore                         |   Bin [31m0[m -> [32m2257[m bytes
+ android/app/proguard-rules.pro                     |    10 [32m+[m
+ android/app/src/debug/AndroidManifest.xml          |     9 [32m+[m
+ android/app/src/main/AndroidManifest.xml           |    54 [32m+[m
+ .../java/com/safetysensemobileapp/MainActivity.kt  |    22 [32m+[m
+ .../com/safetysensemobileapp/MainApplication.kt    |    44 [32m+[m
+ .../main/res/drawable/rn_edit_text_material.xml    |    37 [32m+[m
+ .../app/src/main/res/mipmap-hdpi/ic_launcher.png   |   Bin [31m0[m -> [32m3056[m bytes
+ .../src/main/res/mipmap-hdpi/ic_launcher_round.png |   Bin [31m0[m -> [32m5024[m bytes
+ .../app/src/main/res/mipmap-mdpi/ic_launcher.png   |   Bin [31m0[m -> [32m2096[m bytes
+ .../src/main/res/mipmap-mdpi/ic_launcher_round.png |   Bin [31m0[m -> [32m2858[m bytes
+ .../app/src/main/res/mipmap-xhdpi/ic_launcher.png  |   Bin [31m0[m -> [32m4569[m bytes
+ .../main/res/mipmap-xhdpi/ic_launcher_round.png    |   Bin [31m0[m -> [32m7098[m bytes
+ .../app/src/main/res/mipmap-xxhdpi/ic_launcher.png |   Bin [31m0[m -> [32m6464[m bytes
+ .../main/res/mipmap-xxhdpi/ic_launcher_round.png   |   Bin [31m0[m -> [32m10676[m bytes
+ .../src/main/res/mipmap-xxxhdpi/ic_launcher.png    |   Bin [31m0[m -> [32m9250[m bytes
+ .../main/res/mipmap-xxxhdpi/ic_launcher_round.png  |   Bin [31m0[m -> [32m15523[m bytes
+ android/app/src/main/res/values/strings.xml        |     3 [32m+[m
+ android/app/src/main/res/values/styles.xml         |     9 [32m+[m
+ android/build.gradle                               |    21 [32m+[m
+ android/gradle.properties                          |    42 [32m+[m
+ android/gradle/wrapper/gradle-wrapper.jar          |   Bin [31m0[m -> [32m43583[m bytes
+ android/gradle/wrapper/gradle-wrapper.properties   |     7 [32m+[m
+ android/gradlew                                    |   251 [32m+[m
+ android/gradlew.bat                                |    94 [32m+[m
+ android/settings.gradle                            |     6 [32m+[m
+ app.json                                           |     4 [32m+[m
+ babel.config.js                                    |     3 [32m+[m
+ index.js                                           |     9 [32m+[m
+ ios/.xcode.env                                     |    11 [32m+[m
+ ios/Podfile                                        |    35 [32m+[m
+ ios/SafetysenseMobileApp.xcodeproj/project.pbxproj |   505 [32m+[m
+ .../xcschemes/SafetysenseMobileApp.xcscheme        |    88 [32m+[m
+ ios/SafetysenseMobileApp/AppDelegate.swift         |    30 [32m+[m
+ .../AppIcon.appiconset/Contents.json               |    53 [32m+[m
+ .../Images.xcassets/Contents.json                  |     6 [32m+[m
+ ios/SafetysenseMobileApp/Info.plist                |    52 [32m+[m
+ ios/SafetysenseMobileApp/LaunchScreen.storyboard   |    47 [32m+[m
+ ios/SafetysenseMobileApp/PrivacyInfo.xcprivacy     |    37 [32m+[m
+ jest.config.js                                     |     3 [32m+[m
+ metro.config.js                                    |    11 [32m+[m
+ package-lock.json                                  | 13338 [32m+++++++++++++++++++[m
+ package.json                                       |    54 [32m+[m
+ src/App.tsx                                        |    43 [32m+[m
+ src/assets/logo-placeholder.tsx                    |    31 [32m+[m
+ src/assets/logo.jpg                                |   Bin [31m0[m -> [32m233761[m bytes
+ src/assets/logooo.png                              |   Bin [31m0[m -> [32m355360[m bytes
+ src/components/Button.tsx                          |    67 [32m+[m
+ src/components/FooterNav.tsx                       |     0
+ src/components/LogoPlaceholder.tsx                 |    28 [32m+[m
+ src/screens/HomeScreen.tsx                         |    37 [32m+[m
+ src/screens/LoginScreen.tsx                        |   210 [32m+[m
+ src/screens/ReportIncidentScreen.tsx               |   690 [32m+[m
+ src/screens/ResponderLoginScreen.tsx               |    56 [32m+[m
+ tsconfig.json                                      |     3 [32m+[m
+ 64 files changed, 16418 insertions(+)
