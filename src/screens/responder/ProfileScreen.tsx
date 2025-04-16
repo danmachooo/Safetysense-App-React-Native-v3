@@ -13,25 +13,25 @@ type ProfileScreenNavigationProp = StackNavigationProp<any, "ResponderLogin">
 // Define user data type
 interface UserData {
   id: string
-  name: string
+  firstname: string
+  lastname: string
   badgeNumber: string
-  department: string
   role: string
   email: string
-  phone: string
+  contactNumber: string
   avatar: string
 }
 
 // Mock user data
 const MOCK_USER: UserData = {
   id: "1",
-  name: "John Doe",
+  firstname: "Lelouch",
+  lastname: "Lamperouge",
   badgeNumber: "B12345",
-  department: "Fire Department",
-  role: "First Responder",
+  role: "Responder",
   email: "john.doe@example.com",
-  phone: "(555) 123-4567",
-  avatar: "https://via.placeholder.com/150",
+  contactNumber: "(555) 123-4567",
+  avatar: "https://picsum.photos/200/300",
 }
 
 const ProfileScreen = () => {
@@ -77,13 +77,12 @@ const ProfileScreen = () => {
             <Image source={{ uri: MOCK_USER.avatar }} style={styles.avatar} />
           </View>
           <View style={styles.userInfo}>
-            <Text style={styles.userName}>{MOCK_USER.name}</Text>
+            <Text style={styles.userName}>{MOCK_USER.firstname} {MOCK_USER.lastname}</Text>
             <Text style={styles.userRole}>{MOCK_USER.role}</Text>
-            <Text style={styles.userDepartment}>{MOCK_USER.department}</Text>
           </View>
         </View>
 
-        {/* Badge Information */}
+        {/* Information */}
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Credentials</Text>
           <View style={styles.infoItem}>
@@ -98,8 +97,8 @@ const ProfileScreen = () => {
           </View>
           <View style={styles.infoItem}>
             <MaterialCommunityIcons name="phone-outline" size={20} color="#2C74B3" />
-            <Text style={styles.infoLabel}>Phone:</Text>
-            <Text style={styles.infoValue}>{MOCK_USER.phone}</Text>
+            <Text style={styles.infoLabel}>Phone number:</Text>
+            <Text style={styles.infoValue}>{MOCK_USER.contactNumber}</Text>
           </View>
         </View>
 

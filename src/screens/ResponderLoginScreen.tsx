@@ -68,10 +68,10 @@ const ResponderLoginScreen = () => {
       <KeyboardAvoidingView style={styles.container} behavior={Platform.OS === "ios" ? "padding" : "height"}>
         <View style={styles.logoContainer}>
           <View style={styles.logoWrapper}>
-            <Image source={{ uri: "https://via.placeholder.com/150" }} style={styles.logo} />
+            <Image source={{ uri: "https://picsum.photos/200/300" }} style={styles.logo} />
           </View>
-          <Text style={styles.appName}>Citizen Alert</Text>
-          <Text style={styles.responderText}>Responder Portal</Text>
+          <Text style={styles.appName}>Welcome, Responder</Text>
+          <Text style={styles.responderText}>Please login your credentials</Text>
         </View>
 
         <View style={styles.formContainer}>

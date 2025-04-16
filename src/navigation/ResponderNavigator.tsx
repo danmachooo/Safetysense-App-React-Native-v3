@@ -1,13 +1,13 @@
 import { createBottomTabNavigator } from "@react-navigation/bottom-tabs"
 import { createStackNavigator } from "@react-navigation/stack"
 import { SafeAreaView } from "react-native-safe-area-context"
-import MaterialCommunityIcons from "react-native-vector-icons/MaterialCommunityIcons"
 
 // Import screens
 import DashboardScreen from "../screens/responder/DashboardScreen"
 import IncidentDetailsScreen from "../screens/responder/IncidentDetailsScreen"
 import ReportsScreen from "../screens/responder/ReportsScreen"
 import ProfileScreen from "../screens/responder/ProfileScreen"
+import CustomTabBar from "../components/CustomTabBar"
 
 // Define types for navigation
 export type ResponderStackParamList = {
@@ -29,6 +29,12 @@ export interface Location {
   address: string
 }
 
+export interface IncidentType {
+  name: string
+  icon: string
+  color: string
+}
+
 export interface Incident {
   id: string
   title: string
@@ -36,7 +42,8 @@ export interface Incident {
   location: Location
   timestamp: string
   image: string
-  status?: string
+  type: IncidentType  // Add this required property
+  status?: string     // Make this more specific if possible
   resolvedAt?: string
 }
 
@@ -94,40 +101,10 @@ const ResponderNavigator = () => {
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: "#0A2647" }} edges={["top"]}>
       <Tab.Navigator
-        screenOptions={({ route }) => ({
-          tabBarIcon: ({ focused, color, size }) => {
-            let iconName = "alert-circle"
-
-            if (route.name === "Dashboard") {
-              iconName = focused ? "view-dashboard" : "view-dashboard-outline"
-            } else if (route.name === "Reports") {
-              iconName = focused ? "clipboard-list" : "clipboard-list-outline"
-            } else if (route.name === "Profile") {
-              iconName = focused ? "account" : "account-outline"
-            }
-
-            return <MaterialCommunityIcons name={iconName} size={size} color={color} />
-          },
-          tabBarActiveTintColor: "#2C74B3",
-          tabBarInactiveTintColor: "#8BABC7",
+        tabBar={(props) => <CustomTabBar {...props} />}
+        screenOptions={{
           headerShown: false,
-          tabBarStyle: {
-            backgroundColor: "#0A2647",
-            borderTopColor: "#144272",
-            paddingTop: 5,
-            height: 60,
-            elevation: 8,
-            shadowColor: "#000",
-            shadowOffset: { width: 0, height: -2 },
-            shadowOpacity: 0.1,
-            shadowRadius: 4,
-          },
-          tabBarLabelStyle: {
-            fontSize: 12,
-            fontWeight: "500",
-            paddingBottom: 5,
-          },
-        })}
+        }}
       >
         <Tab.Screen name="Dashboard" component={DashboardStack} />
         <Tab.Screen name="Reports" component={ReportsStack} />

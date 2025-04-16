@@ -20,7 +20,7 @@ DerivedData
 *.hmap
 *.ipa
 *.xcuserstate
-ios/.xcode.env.local
+# ios/.xcode.env.local
 
 # Android/IntelliJ
 #
@@ -70,9 +70,9 @@ yarn-error.log
 web-build/
 dist/
 
-# local env files
-.env*.local
-.env
+# # local env files
+# .env*.local
+# .env
 
 # typescript
 *.tsbuildinfo
