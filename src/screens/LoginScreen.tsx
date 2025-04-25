@@ -8,9 +8,8 @@ import {
   SafeAreaView,
   StatusBar,
   Linking,
-  Platform,
 } from 'react-native';
-import { useNavigation } from '@react-navigation/native';
+import {useNavigation} from '@react-navigation/native';
 
 // You can replace this with your actual logo
 const logoPlaceholder = require('../assets/logooo.png');
@@ -40,7 +39,7 @@ const LoginScreen = () => {
   const handleEmergencyCall = () => {
     // Replace with your actual emergency number
     const emergencyNumber = '911';
-    
+
     // Open phone dialer with emergency number
     Linking.openURL(`tel:${emergencyNumber}`);
   };
@@ -60,15 +59,13 @@ const LoginScreen = () => {
         <View style={styles.buttonContainer}>
           <TouchableOpacity
             style={[styles.button, styles.reportButton]}
-            onPress={handleReportIncident}
-          >
+            onPress={handleReportIncident}>
             <Text style={styles.buttonText}>Report an Incident</Text>
           </TouchableOpacity>
 
           <TouchableOpacity
             style={[styles.button, styles.loginButton]}
-            onPress={handleResponderLogin}
-          >
+            onPress={handleResponderLogin}>
             <Text style={styles.buttonText}>Login as Responder</Text>
           </TouchableOpacity>
         </View>
@@ -84,8 +81,7 @@ const LoginScreen = () => {
         <TouchableOpacity
           style={styles.emergencyButton}
           onPress={handleEmergencyCall}
-          activeOpacity={0.8}
-        >
+          activeOpacity={0.8}>
           <PhoneIcon />
           <Text style={styles.emergencyButtonText}>Emergency</Text>
         </TouchableOpacity>
@@ -136,7 +132,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     elevation: 2,
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
+    shadowOffset: {width: 0, height: 2},
     shadowOpacity: 0.2,
     shadowRadius: 4,
   },
@@ -163,7 +159,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     elevation: 8,
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
+    shadowOffset: {width: 0, height: 4},
     shadowOpacity: 0.3,
     shadowRadius: 6,
   },
@@ -185,7 +181,7 @@ const styles = StyleSheet.create({
     borderWidth: 2,
     borderColor: '#FFFFFF',
     borderRadius: 2,
-    transform: [{ rotate: '135deg' }],
+    transform: [{rotate: '135deg'}],
     position: 'relative',
   },
   phoneInner: {
