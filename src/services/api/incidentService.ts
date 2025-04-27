@@ -18,9 +18,7 @@ export interface IncidentSubmission {
   latitude: string;
 }
 
-export interface UploadProgressCallback {
-  (progress: number): void;
-}
+export type UploadProgressCallback = (progress: number) => void;
 
 const incidentService = {
   /**
@@ -38,12 +36,6 @@ const incidentService = {
     }
   },
 
-  /**
-   * Upload an image for an incident
-   * @param imageUri The URI of the image to upload
-   * @param onProgress Optional callback for upload progress
-   * @returns The URL of the uploaded image
-   */
   /**
    * Upload an image for an incident
    * @param imageUri The URI of the image to upload
@@ -146,7 +138,7 @@ const incidentService = {
    * @param id The ID of the incident to fetch
    * @returns The incident data
    */
-  getIncidentById: async (id: string) => {
+  getIncidentById: async (id: number) => {
     try {
       const response = await api.get(`/incidents/${id}`);
       return response.data;
@@ -162,7 +154,7 @@ const incidentService = {
    * @param userId The ID of the user accepting the incident
    * @returns The response from the API
    */
-  acceptIncident: async (incidentId: string, userId: string) => {
+  acceptIncident: async (incidentId: number, userId: number) => {
     try {
       const response = await api.post(`/incidents/${incidentId}/accept`, {
         userId,
@@ -175,12 +167,109 @@ const incidentService = {
   },
 
   /**
+   * Dismiss an incident for a specific user (per-user dismissal)
+   * @param incidentId The ID of the incident to dismiss
+   * @param userId The ID of the user dismissing the incident
+   * @param reason Optional reason for dismissal
+   * @returns The response from the API
+   */
+  dismissIncident: async (
+    incidentId: number,
+    userId: number,
+    reason?: string,
+  ) => {
+    try {
+      const response = await api.post(`/incidents/${incidentId}/dismiss`, {
+        userId,
+        reason,
+      });
+      return response.data;
+    } catch (error) {
+      console.error('Error dismissing incident:', error);
+      throw error;
+    }
+  },
+
+  /**
+   * Globally dismiss an incident (admin only)
+   * @param incidentId The ID of the incident to globally dismiss
+   * @param userId The ID of the admin user dismissing the incident
+   * @param reason Required reason for global dismissal
+   * @returns The response from the API
+   */
+  globalDismissIncident: async (
+    incidentId: number,
+    userId: number,
+    reason: string,
+  ) => {
+    try {
+      const response = await api.post(
+        `/incidents/${incidentId}/global-dismiss`,
+        {
+          userId,
+          reason,
+        },
+      );
+      return response.data;
+    } catch (error) {
+      console.error('Error globally dismissing incident:', error);
+      throw error;
+    }
+  },
+
+  /**
+   * Get incidents dismissed by a specific user
+   * @param userId The ID of the user
+   * @param page Optional page number for pagination
+   * @param limit Optional limit for pagination
+   * @returns The list of incidents dismissed by the user
+   */
+  getDismissedIncidentsByUser: async (
+    userId: number,
+    page?: number,
+    limit?: number,
+  ) => {
+    try {
+      const params: any = {};
+      if (page) {
+        params.page = page;
+      }
+      if (limit) {
+        params.limit = limit;
+      }
+
+      const response = await api.get(`/incidents/user/${userId}/dismissed`, {
+        params,
+      });
+      return response.data;
+    } catch (error) {
+      console.error('Error fetching dismissed incidents by user:', error);
+      throw error;
+    }
+  },
+
+  /**
+   * Get users who dismissed a specific incident
+   * @param incidentId The ID of the incident
+   * @returns The list of users who dismissed the incident
+   */
+  getUsersByDismissedIncident: async (incidentId: number) => {
+    try {
+      const response = await api.get(`/incidents/${incidentId}/dismissers`);
+      return response.data;
+    } catch (error) {
+      console.error('Error fetching users who dismissed the incident:', error);
+      throw error;
+    }
+  },
+
+  /**
    * Resolve an incident
    * @param incidentId The ID of the incident to resolve
    * @param resolutionNotes Optional notes about the resolution
    * @returns The response from the API
    */
-  resolveIncident: async (incidentId: string, resolutionNotes?: string) => {
+  resolveIncident: async (incidentId: number, resolutionNotes?: string) => {
     try {
       const response = await api.put(`/incidents/${incidentId}/resolve`, {
         resolutionNotes,
@@ -202,6 +291,46 @@ const incidentService = {
       return response.data;
     } catch (error) {
       console.error('Error fetching incident statistics:', error);
+      throw error;
+    }
+  },
+
+  /**
+   * Get incidents accepted by a user
+   * @param userId The ID of the user
+   * @param page Optional page number for pagination
+   * @param limit Optional limit for pagination
+   * @returns The list of incidents accepted by the user
+   */
+  getIncidentsByUser: async (userId: number, page?: number, limit?: number) => {
+    try {
+      const params: any = {};
+      if (page) {
+        params.page = page;
+      }
+      if (limit) {
+        params.limit = limit;
+      }
+
+      const response = await api.get(`/incidents/user/${userId}`, {params});
+      return response.data;
+    } catch (error) {
+      console.error('Error fetching incidents by user:', error);
+      throw error;
+    }
+  },
+
+  /**
+   * Get users who accepted a specific incident
+   * @param incidentId The ID of the incident
+   * @returns The list of users who accepted the incident
+   */
+  getUsersByIncident: async (incidentId: number) => {
+    try {
+      const response = await api.get(`/incidents/${incidentId}/users`);
+      return response.data;
+    } catch (error) {
+      console.error('Error fetching users by incident:', error);
       throw error;
     }
   },

@@ -1,3 +1,4 @@
 <resources>
     <string name="app_name">SafetysenseMobileApp</string>
+      <string name="default_notification_channel_id">incident_alerts</string>
 </resources>

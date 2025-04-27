@@ -35,16 +35,43 @@ export interface IncidentType {
   color: string;
 }
 
-export interface Incident {
-  id: string;
+interface Incident {
+  id: number;
   title: string;
   description: string;
-  location: Location;
+  location: {
+    latitude: number;
+    longitude: number;
+    address: string;
+  };
   timestamp: string;
   image: string;
-  type: IncidentType; // Add this required property
-  status?: string; // Make this more specific if possible
+  type: {
+    name: string;
+    icon: string;
+    color: string;
+  };
+  status: string;
   resolvedAt?: string;
+  reportedBy: string;
+  contact: string;
+  accepters: Array<{
+    id: number;
+    firstname: string;
+    lastname: string;
+    email: string;
+    contact: string;
+    acceptedAt: string;
+  }>;
+  dismissers?: Array<{
+    id: number;
+    firstname: string;
+    lastname: string;
+    email: string;
+    contact: string;
+    dismissedAt: string;
+    reason?: string;
+  }>;
 }
 
 const Tab = createBottomTabNavigator<ResponderTabParamList>();

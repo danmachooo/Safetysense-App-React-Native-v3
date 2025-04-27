@@ -1,6 +1,16 @@
+/* eslint-disable @typescript-eslint/no-unused-vars */
+// Updated authSlice.ts
+
 import {createSlice, PayloadAction, createAsyncThunk} from '@reduxjs/toolkit';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import axios from '../../services/api/axios';
+import {FCM_TOKEN_KEY, AUTH_TOKEN_KEY, AUTH_USER_KEY} from '@env';
+import {
+  subscribeToResponderTopic,
+  unsubscribeFromResponderTopic,
+  initializeFCM,
+} from '../../services/firebase/fcmService';
+import {RootState} from '../../store/index';
 
 interface User {
   id: number;
@@ -16,6 +26,7 @@ interface User {
 interface AuthState {
   token: string | null;
   user: User | null;
+  fcmToken: string | null;
   isAuthenticated: boolean;
   loading: boolean;
   error: string | null;
@@ -24,32 +35,37 @@ interface AuthState {
 const initialState: AuthState = {
   token: null,
   user: null,
+  fcmToken: null,
   isAuthenticated: false,
   loading: false,
   error: null,
 };
 
-const AUTH_TOKEN_KEY = 'authToken';
-const AUTH_USER_KEY = 'authUser';
-
+// Login user - Updated to handle topic subscription
 export const loginUser = createAsyncThunk(
   'auth/loginUser',
   async ({email, password}: {email: string; password: string}, thunkAPI) => {
     try {
-      const response = await axios.post('/auth/login', {email, password});
-      console.log(response);
+      const fcmToken = await AsyncStorage.getItem(FCM_TOKEN_KEY);
+
+      const response = await axios.post('/auth/login', {
+        email,
+        password,
+        fcmToken,
+      });
+
       const token = response.data.data.token;
       const user = response.data.data.user;
-      console.log('AUTH TOKEN TAKEN BY REDUX: ', token);
-      console.log('AUTH USER TAKEN BY REDUX: ', user);
 
       await AsyncStorage.setItem(AUTH_TOKEN_KEY, token);
-      if (user) {
-        await AsyncStorage.setItem(AUTH_USER_KEY, JSON.stringify(user));
-      }
+      await AsyncStorage.setItem(AUTH_USER_KEY, JSON.stringify(user));
+
+      // Subscribe to the responder topic after successful login
+      await initializeFCM();
+      await subscribeToResponderTopic();
+
       return {token, user};
     } catch (error: any) {
-      console.log(error);
       return thunkAPI.rejectWithValue(
         error.response?.data?.message || 'Login failed',
       );
@@ -57,33 +73,44 @@ export const loginUser = createAsyncThunk(
   },
 );
 
+// Load token
 export const loadToken = createAsyncThunk(
   'auth/loadToken',
   async (_, thunkAPI) => {
     try {
       const token = await AsyncStorage.getItem(AUTH_TOKEN_KEY);
+      const fcmToken = await AsyncStorage.getItem(FCM_TOKEN_KEY);
       let user = null;
       const userData = await AsyncStorage.getItem(AUTH_USER_KEY);
       if (userData) {
         user = JSON.parse(userData);
+
+        // If we have a user and token, ensure topic is subscribed
+        if (token && user) {
+          await subscribeToResponderTopic();
+        }
       }
-      return {token, user};
+      return {token, user, fcmToken};
     } catch (error) {
       return thunkAPI.rejectWithValue('Failed to load authentication data');
     }
   },
 );
 
+// Logout user - Updated to handle topic unsubscription
 export const logoutUser = createAsyncThunk(
   'auth/logoutUser',
   async (_, thunkAPI) => {
     try {
-      // Since axios interceptor adds the token, we don't need to manually add it here
-      const response = await axios.post('/auth/logout');
+      // Unsubscribe from the responder topic before logout
+      await unsubscribeFromResponderTopic();
+      const fcmToken = await AsyncStorage.getItem(FCM_TOKEN_KEY);
+      const response = await axios.post('/auth/logout', {fcmToken});
 
       if (response.data.success) {
         await AsyncStorage.removeItem(AUTH_TOKEN_KEY);
         await AsyncStorage.removeItem(AUTH_USER_KEY);
+        // Note: FCM token is NOT removed on logout
       }
 
       return {success: true};
@@ -95,6 +122,7 @@ export const logoutUser = createAsyncThunk(
   },
 );
 
+// Create the slice
 const authSlice = createSlice({
   name: 'auth',
   initialState,
@@ -102,10 +130,13 @@ const authSlice = createSlice({
     clearErrors: state => {
       state.error = null;
     },
+    setFcmToken: (state, action: PayloadAction<string>) => {
+      state.fcmToken = action.payload;
+    },
   },
   extraReducers: builder => {
     builder
-      // Login cases
+      // Login
       .addCase(loginUser.pending, state => {
         state.loading = true;
         state.error = null;
@@ -123,13 +154,14 @@ const authSlice = createSlice({
         state.isAuthenticated = false;
       })
 
-      // Load token cases
+      // Load token
       .addCase(loadToken.pending, state => {
         state.loading = true;
       })
       .addCase(loadToken.fulfilled, (state, action) => {
         state.token = action.payload.token;
         state.user = action.payload.user;
+        state.fcmToken = action.payload.fcmToken;
         state.isAuthenticated = !!(action.payload.token && action.payload.user);
         state.loading = false;
       })
@@ -138,7 +170,7 @@ const authSlice = createSlice({
         state.error = action.payload;
       })
 
-      // Logout cases
+      // Logout
       .addCase(logoutUser.pending, state => {
         state.loading = true;
         state.error = null;
@@ -146,6 +178,7 @@ const authSlice = createSlice({
       .addCase(logoutUser.fulfilled, state => {
         state.token = null;
         state.user = null;
+        // Keep fcmToken even after logout
         state.isAuthenticated = false;
         state.loading = false;
       })
@@ -156,5 +189,5 @@ const authSlice = createSlice({
   },
 });
 
-export const {clearErrors} = authSlice.actions;
+export const {clearErrors, setFcmToken} = authSlice.actions;
 export default authSlice.reducer;

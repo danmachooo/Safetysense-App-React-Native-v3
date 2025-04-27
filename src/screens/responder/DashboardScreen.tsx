@@ -1,8 +1,10 @@
-/* eslint-disable @typescript-eslint/no-unused-vars */
+/* eslint-disable @typescript-eslint/no-shadow */
+/* eslint-disable curly */
+/* eslint-disable react-hooks/exhaustive-deps */
 /* eslint-disable react/no-unstable-nested-components */
 'use client';
 
-import {useState, useEffect} from 'react';
+import {useState, useEffect, useCallback, useRef} from 'react';
 import {
   View,
   Text,
@@ -15,17 +17,17 @@ import {
   RefreshControl,
   StatusBar,
 } from 'react-native';
-import {useNavigation} from '@react-navigation/native';
+import {useNavigation, useFocusEffect} from '@react-navigation/native';
 import type {StackNavigationProp} from '@react-navigation/stack';
 import {SafeAreaView} from 'react-native-safe-area-context';
 import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
 import MapView, {Marker, PROVIDER_GOOGLE, Callout} from 'react-native-maps';
-import type {
-  ResponderStackParamList,
-  Incident,
-  IncidentType,
-} from '../../navigation/ResponderNavigator';
+import Geocoding from 'react-native-geocoding';
+import type {ResponderStackParamList} from '../../navigation/ResponderNavigator';
 import type {JSX} from 'react/jsx-runtime';
+import incidentService from '../../services/api/incidentService';
+import {GOOGLE_API_KEY, BASE_URL} from '@env';
+import {useAppSelector} from '../../store/hooks';
 
 // Define navigation prop type
 type DashboardScreenNavigationProp = StackNavigationProp<
@@ -47,106 +49,98 @@ const SOCORRO_COORDINATES = {
   longitude: 121.4066,
 };
 
-// Update the incident types definition to match the interface
-const INCIDENT_TYPES: Record<string, IncidentType> = {
-  FIRE: {name: 'Fire', icon: 'fire', color: '#FF5252'},
-  MEDICAL: {name: 'Medical', icon: 'medical-bag', color: '#2196F3'},
-  ACCIDENT: {name: 'Accident', icon: 'car-emergency', color: '#FFC107'},
-  FLOOD: {name: 'Flood', icon: 'water', color: '#4CAF50'},
-  CRIME: {name: 'Crime', icon: 'alert-octagon', color: '#9C27B0'},
-  OTHER: {name: 'Other', icon: 'dots-horizontal', color: '#607D8B'},
+// Define incident types with icons and colors
+const INCIDENT_TYPES = {
+  Fire: {name: 'Fire', icon: 'fire', color: '#FF5252'},
+  Medical: {name: 'Medical', icon: 'medical-bag', color: '#2196F3'},
+  Accident: {name: 'Accident', icon: 'car-emergency', color: '#FFC107'},
+  Flood: {name: 'Flood', icon: 'water', color: '#4CAF50'},
+  Crime: {name: 'Crime', icon: 'alert-octagon', color: '#9C27B0'},
+  Other: {name: 'Other', icon: 'dots-horizontal', color: '#607D8B'},
 };
 
-// Mock data for incidents - Updated to Socorro, Oriental Mindoro area
-const MOCK_INCIDENTS: Incident[] = [
-  {
-    id: '1',
-    title: 'Traffic Accident',
-    description: 'Two-vehicle collision with possible injuries on main highway',
-    location: {
-      latitude: 13.0584 + 0.01,
-      longitude: 121.4066 - 0.005,
-      address: 'National Highway, Socorro, Oriental Mindoro',
-    },
-    timestamp: new Date().toISOString(),
-    image: 'https://picsum.photos/id/1002/200/300',
-    type: INCIDENT_TYPES.ACCIDENT,
-    status: 'Pending',
-  },
-  {
-    id: '2',
-    title: 'Medical Emergency',
-    description: 'Elderly person needs immediate medical assistance',
-    location: {
-      latitude: 13.0584 - 0.005,
-      longitude: 121.4066 + 0.008,
-      address: 'Barangay Pasi, Socorro, Oriental Mindoro',
-    },
-    timestamp: new Date(Date.now() - 1000 * 60 * 15).toISOString(),
-    image: 'https://picsum.photos/id/1003/200/300',
-    type: INCIDENT_TYPES.MEDICAL,
-    status: 'Pending',
-  },
-  {
-    id: '3',
-    title: 'Fire Reported',
-    description:
-      'Small fire in residential building, spreading to nearby structures',
-    location: {
-      latitude: 13.0584 + 0.008,
-      longitude: 121.4066 + 0.003,
-      address: 'Barangay Catiningan, Socorro, Oriental Mindoro',
-    },
-    timestamp: new Date(Date.now() - 1000 * 60 * 30).toISOString(),
-    image: 'https://picsum.photos/id/1004/200/300',
-    type: INCIDENT_TYPES.FIRE,
-    status: 'Pending',
-  },
-  {
-    id: '4',
-    title: 'Flooding',
-    description:
-      'Rising water levels affecting residential area after heavy rainfall',
-    location: {
-      latitude: 13.0584 - 0.012,
-      longitude: 121.4066 - 0.007,
-      address: 'Barangay Batong Dalig, Socorro, Oriental Mindoro',
-    },
-    timestamp: new Date(Date.now() - 1000 * 60 * 45).toISOString(),
-    image: 'https://picsum.photos/id/1015/200/300',
-    type: INCIDENT_TYPES.FLOOD,
-    status: 'Pending',
-  },
-  {
-    id: '5',
-    title: 'Suspicious Activity',
-    description: 'Suspicious individuals reported near the community center',
-    location: {
-      latitude: 13.0584 + 0.005,
-      longitude: 121.4066 - 0.01,
-      address: 'Community Center, Socorro, Oriental Mindoro',
-    },
-    timestamp: new Date(Date.now() - 1000 * 60 * 60).toISOString(),
-    image: 'https://picsum.photos/id/1005/200/300',
-    type: INCIDENT_TYPES.CRIME,
-    status: 'Pending',
-  },
-  {
-    id: '6',
-    title: 'Power Outage',
-    description:
-      'Electrical post damaged, causing power outage in several barangays',
-    location: {
-      latitude: 13.0584 - 0.008,
-      longitude: 121.4066 + 0.012,
-      address: 'Barangay Mabini, Socorro, Oriental Mindoro',
-    },
-    timestamp: new Date(Date.now() - 1000 * 60 * 90).toISOString(),
-    image: 'https://picsum.photos/id/1006/200/300',
-    type: INCIDENT_TYPES.OTHER,
-    status: 'Pending',
-  },
-];
+// Define API incident interface
+interface ApiIncident {
+  id: number;
+  cameraId: number | null;
+  reportedBy: string;
+  contact: string;
+  type: string;
+  snapshotUrl: string;
+  description: string;
+  status: string;
+  longitude: string;
+  latitude: string;
+  createdAt: string;
+  updatedAt: string;
+  deletedAt: null | string;
+  camera: null | any;
+  accepters: Array<{
+    id: number;
+    firstname: string;
+    lastname: string;
+    email: string;
+    contact: string;
+    IncidentAcceptance: {
+      acceptedAt: string;
+    };
+  }>;
+  dismissers?: Array<{
+    id: number;
+    firstname: string;
+    lastname: string;
+    email: string;
+    contact: string;
+    IncidentDismissal: {
+      dismissedAt: string;
+      reason?: string;
+    };
+  }>;
+}
+
+// Define incident interface for the app
+interface Incident {
+  id: number;
+  title: string;
+  description: string;
+  location: {
+    latitude: number;
+    longitude: number;
+    address: string;
+  };
+  timestamp: string;
+  image: string;
+  type: {
+    name: string;
+    icon: string;
+    color: string;
+  };
+  status: string;
+  reportedBy: string;
+  contact: string;
+  accepters: Array<{
+    id: number;
+    firstname: string;
+    lastname: string;
+    email: string;
+    contact: string;
+    acceptedAt: string;
+  }>;
+  dismissers?: Array<{
+    id: number;
+    firstname: string;
+    lastname: string;
+    email: string;
+    contact: string;
+    dismissedAt: string;
+    reason?: string;
+  }>;
+}
+
+// Address cache to avoid redundant API calls
+interface AddressCache {
+  [key: string]: string;
+}
 
 // Google Maps Dark Mode Style
 const mapDarkStyle = [
@@ -343,21 +337,227 @@ const LONGITUDE_DELTA = LATITUDE_DELTA * ASPECT_RATIO;
 
 const DashboardScreen = () => {
   const navigation = useNavigation<DashboardScreenNavigationProp>();
-  const [incidents, setIncidents] = useState<Incident[]>(MOCK_INCIDENTS);
+  const [incidents, setIncidents] = useState<Incident[]>([]);
   const [viewMode, setViewMode] = useState<ViewMode>(VIEW_MODES.LIST);
-  const [loading, setLoading] = useState<boolean>(false);
+  const [loading, setLoading] = useState<boolean>(true);
   const [refreshing, setRefreshing] = useState<boolean>(false);
   const [selectedIncidentType, setSelectedIncidentType] = useState<
     string | null
   >(null);
   const [selectedFilterId, setSelectedFilterId] = useState<string>('all');
+  const [error, setError] = useState<string | null>(null);
+  const [dismissedIncidentIds, setDismissedIncidentIds] = useState<number[]>(
+    [],
+  );
+  const mapRef = useRef<MapView | null>(null);
+  const isRefreshingRef = useRef<boolean>(false);
+  const {user} = useAppSelector(state => state.auth);
 
+  // Address cache to minimize API calls
+  const addressCache = useRef<AddressCache>({});
+
+  // Reverse geocoding function to get address from coordinates
+  const getAddressFromCoordinates = async (
+    latitude: number,
+    longitude: number,
+  ): Promise<string> => {
+    try {
+      // Check cache first
+      const cacheKey = `${latitude},${longitude}`;
+      if (addressCache.current[cacheKey]) {
+        return addressCache.current[cacheKey];
+      }
+
+      // If no API key is provided, return a default message
+      if (!GOOGLE_API_KEY || GOOGLE_API_KEY === 'YOUR_GOOGLE_API_KEY') {
+        return 'Location information unavailable';
+      }
+
+      const response = await Geocoding.from(latitude, longitude);
+
+      let address = 'Location information unavailable';
+
+      if (response.results && response.results.length > 0) {
+        // Get the most detailed address (usually the first result)
+        const result = response.results[0];
+
+        // Extract the formatted address
+        address = result.formatted_address;
+
+        // Cache the result
+        addressCache.current[cacheKey] = address;
+      }
+
+      return address;
+      // eslint-disable-next-line no-catch-shadow
+    } catch (error) {
+      console.error('Error in reverse geocoding:', error);
+      return 'Error retrieving location';
+    }
+  };
+
+  // Function to transform API incident to app incident format
+  const transformIncident = async (
+    apiIncident: ApiIncident,
+  ): Promise<Incident> => {
+    // Get incident type info or use default
+    const typeInfo =
+      INCIDENT_TYPES[apiIncident.type as keyof typeof INCIDENT_TYPES] ||
+      INCIDENT_TYPES.Other;
+
+    // Fix image URL if needed
+    let imageUrl = apiIncident.snapshotUrl;
+    if (imageUrl && !imageUrl.startsWith('http')) {
+      // Assuming your API base URL is defined somewhere
+      const baseUrl = BASE_URL || 'http://localhost:3000'; // Replace with your actual base URL
+      imageUrl = `${baseUrl}/${imageUrl}`;
+    }
+
+    // Transform accepters
+    const transformedAccepters = apiIncident.accepters.map(accepter => ({
+      id: accepter.id,
+      firstname: accepter.firstname,
+      lastname: accepter.lastname,
+      email: accepter.email,
+      contact: accepter.contact,
+      acceptedAt: accepter.IncidentAcceptance.acceptedAt,
+    }));
+
+    // Transform dismissers if available
+    const transformedDismissers = apiIncident.dismissers
+      ? apiIncident.dismissers.map(dismisser => ({
+          id: dismisser.id,
+          firstname: dismisser.firstname,
+          lastname: dismisser.lastname,
+          email: dismisser.email,
+          contact: dismisser.contact,
+          dismissedAt: dismisser.IncidentDismissal.dismissedAt,
+          reason: dismisser.IncidentDismissal.reason,
+        }))
+      : [];
+
+    // Parse coordinates
+    const latitude = Number.parseFloat(apiIncident.latitude);
+    const longitude = Number.parseFloat(apiIncident.longitude);
+
+    // Get address from coordinates (default to "Fetching location..." while we wait)
+    let address = 'Fetching location...';
+
+    try {
+      address = await getAddressFromCoordinates(latitude, longitude);
+      // eslint-disable-next-line no-catch-shadow
+    } catch (error) {
+      console.error('Error getting address:', error);
+      address = 'Location unavailable';
+    }
+
+    return {
+      id: apiIncident.id,
+      title: `${apiIncident.type} Incident`, // Create a title from the type
+      description: apiIncident.description,
+      location: {
+        latitude,
+        longitude,
+        address,
+      },
+      timestamp: apiIncident.createdAt,
+      image: imageUrl,
+      type: typeInfo,
+      status: apiIncident.status,
+      reportedBy: apiIncident.reportedBy,
+      contact: apiIncident.contact,
+      accepters: transformedAccepters,
+      dismissers: transformedDismissers,
+    };
+  };
+
+  // Update dismissed incidents list
+  const updateDismissedIncidents = useCallback(
+    (incidentsList: Incident[]) => {
+      if (!user?.id) return;
+
+      // Extract IDs of incidents dismissed by the current user
+      const dismissedIds = incidentsList
+        .filter(
+          incident =>
+            incident.dismissers &&
+            incident.dismissers.some(dismisser => dismisser.id === user.id),
+        )
+        .map(incident => incident.id);
+
+      console.log(
+        `Found ${dismissedIds.length} incidents dismissed by user ${user.id}`,
+      );
+      setDismissedIncidentIds(dismissedIds);
+    },
+    [user?.id],
+  );
+
+  // Fetch incidents from API
+  const fetchIncidents = useCallback(async () => {
+    // Prevent multiple simultaneous fetches
+    if (isRefreshingRef.current) {
+      console.log('Already refreshing, skipping duplicate fetch');
+      return;
+    }
+
+    try {
+      isRefreshingRef.current = true;
+      setLoading(true);
+      setError(null);
+
+      console.log('🔄 Fetching incidents from API...');
+      const response = await incidentService.getIncidents();
+
+      if (response.success) {
+        console.log(
+          `✅ Successfully fetched ${response.data.length} incidents`,
+        );
+        // Transform incidents one by one (to handle async address lookup)
+        const transformPromises = response.data.map(transformIncident);
+        const transformedIncidents = await Promise.all(transformPromises);
+
+        // Update the dismissed incidents list before setting the incidents
+        updateDismissedIncidents(transformedIncidents);
+
+        setIncidents(transformedIncidents);
+      } else {
+        console.error('❌ API Error:', response.message);
+        setError('Failed to fetch incidents: ' + response.message);
+      }
+    } catch (err) {
+      console.error('❌ Error fetching incidents:', err);
+      setError('Failed to fetch incidents. Please try again.');
+    } finally {
+      setLoading(false);
+      isRefreshingRef.current = false;
+    }
+  }, [updateDismissedIncidents]);
+
+  // Initial data fetch
   useEffect(() => {
-    console.log(
-      'Default location set to Socorro, Oriental Mindoro:',
-      SOCORRO_COORDINATES,
-    );
-  }, []);
+    Geocoding.init(GOOGLE_API_KEY);
+    fetchIncidents();
+  }, [fetchIncidents]);
+
+  // Auto refresh when screen comes into focus (after actions like accept/dismiss)
+  useFocusEffect(
+    useCallback(() => {
+      console.log('🔄 Dashboard screen focused - scheduling auto refresh');
+
+      // Add a small delay to ensure the screen is fully focused before refreshing
+      const refreshTimer = setTimeout(() => {
+        console.log('🔄 Executing delayed auto refresh');
+        fetchIncidents();
+      }, 300);
+
+      return () => {
+        // Cleanup function when screen loses focus
+        clearTimeout(refreshTimer);
+        console.log('Dashboard screen unfocused - cleared refresh timer');
+      };
+    }, [fetchIncidents]),
+  );
 
   // Function to format timestamp
   const formatTime = (timestamp: string): string => {
@@ -390,7 +590,10 @@ const DashboardScreen = () => {
   };
 
   // Filter incidents by type
-  const filterIncidents = (type: string | null, filterId: string): void => {
+  const filterIncidents = (
+    type: string | null,
+    filterId: string | number,
+  ): void => {
     console.log(
       'Filtering incidents by type:',
       type,
@@ -398,34 +601,103 @@ const DashboardScreen = () => {
       filterId,
     );
     setSelectedIncidentType(type);
-    setSelectedFilterId(filterId);
+    setSelectedFilterId(filterId.toString());
+  };
+
+  // Check if incident is dismissed by current user
+  const isIncidentDismissedByUser = (incident: Incident): boolean => {
+    // First check the cached dismissedIncidentIds for better performance
+    if (dismissedIncidentIds.includes(incident.id)) {
+      return true;
+    }
+
+    // Fallback to checking the incident.dismissers array
+    if (!user?.id || !incident.dismissers) return false;
+
+    return incident.dismissers.some(dismisser => dismisser.id === user.id);
   };
 
   // Get filtered incidents
   const getFilteredIncidents = (): Incident[] => {
+    console.log(
+      'Filtering incidents. Total:',
+      incidents.length,
+      'Current user ID:',
+      user?.id,
+      'Dismissed IDs:',
+      dismissedIncidentIds.length,
+    );
+
+    // First filter out incidents dismissed by the current user
+    const nonDismissedIncidents = incidents.filter(
+      incident => !isIncidentDismissedByUser(incident),
+    );
+
+    console.log('After dismissal filter:', nonDismissedIncidents.length);
+
+    // Then apply type filter if selected
     if (!selectedIncidentType) {
-      return incidents;
+      return nonDismissedIncidents;
     }
-    return incidents.filter(
+
+    const typeFiltered = nonDismissedIncidents.filter(
       incident => incident.type?.name === selectedIncidentType,
     );
+
+    console.log('After type filter:', typeFiltered.length);
+
+    return typeFiltered;
   };
 
   // Handle refresh
-  const onRefresh = (): void => {
-    console.log('Refreshing incident data');
+  const onRefresh = async (): Promise<void> => {
+    console.log('Manual refresh triggered by pull-to-refresh');
+
+    // If already refreshing, don't trigger another refresh
+    if (refreshing || isRefreshingRef.current) {
+      console.log('Already refreshing, skipping duplicate refresh');
+      return;
+    }
+
     setRefreshing(true);
-    // Simulate API call
-    setTimeout(() => {
+    try {
+      await fetchIncidents();
+      console.log('✅ Manual refresh completed successfully');
+    } catch (err) {
+      console.error('❌ Error during manual refresh:', err);
+      setError('Failed to refresh incidents. Please try again.');
+    } finally {
       setRefreshing(false);
-    }, 1500);
+    }
   };
 
   // Center map on Socorro
   const centerMapOnSocorro = () => {
     console.log('Centering map on Socorro, Oriental Mindoro');
-    // This would be implemented with a ref to the MapView component
-    // For now, it's just a placeholder
+    if (mapRef.current) {
+      mapRef.current.animateToRegion({
+        latitude: SOCORRO_COORDINATES.latitude,
+        longitude: SOCORRO_COORDINATES.longitude,
+        latitudeDelta: LATITUDE_DELTA,
+        longitudeDelta: LONGITUDE_DELTA,
+      });
+    }
+  };
+
+  // Get status badge color based on status
+  const getStatusBadgeColor = (status: string): string => {
+    switch (status) {
+      case 'accepted':
+        return '#2C74B3'; // Blue
+      case 'resolved':
+        return '#4CAF50'; // Green
+      case 'pending':
+        return '#FFC107'; // Yellow/Amber
+      case 'dismissed':
+        return '#FF5252'; // Red
+      default:
+        return '#8BABC7'; // Default gray
+    }
   };
 
   // Render incident card
@@ -496,6 +768,30 @@ const DashboardScreen = () => {
         </View>
       </View>
 
+      <View style={styles.reporterContainer}>
+        <View style={styles.reporterInfoContainer}>
+          <View style={styles.reporterDetail}>
+            <Text style={styles.reporterLabel}>Reported by:</Text>
+            <Text style={styles.reporterName}>{item.reportedBy}</Text>
+          </View>
+          <View style={styles.reporterDetail}>
+            <Text style={styles.contactLabel}>Contact:</Text>
+            <Text style={styles.reporterContact}>{item.contact}</Text>
+          </View>
+        </View>
+        {item.status !== 'pending' && (
+          <View
+            style={[
+              styles.statusBadge,
+              {backgroundColor: getStatusBadgeColor(item.status)},
+            ]}>
+            <Text style={styles.statusText}>
+              {item.status.charAt(0).toUpperCase() + item.status.slice(1)}
+            </Text>
+          </View>
+        )}
+      </View>
+
       <TouchableOpacity
         style={styles.viewDetailsButton}
         onPress={() => handleIncidentPress(item)}
@@ -536,7 +832,7 @@ const DashboardScreen = () => {
             <Text style={styles.calloutDescription} numberOfLines={2}>
               {incident.description}
             </Text>
-            <Text style={styles.calloutAddress}>
+            <Text style={styles.calloutAddress} numberOfLines={2}>
               {incident.location.address}
             </Text>
             <View style={styles.calloutFooter}>
@@ -575,19 +871,19 @@ const DashboardScreen = () => {
     onSelectItem,
   }: {
     items: Array<{
-      id?: string;
+      id?: string | number;
       name?: string;
       label?: string;
       icon: string;
       color?: string;
     }>;
-    selectedItemId: string;
+    selectedItemId: string | number;
     onSelectItem: (item: string | null, id: string) => void;
   }) => (
     <FlatList
       horizontal
       data={items}
-      keyExtractor={item => item.id || item.name || ''}
+      keyExtractor={item => `${item.id || item.name || ''}`}
       showsHorizontalScrollIndicator={false}
       renderItem={({item}) => {
         const isSelected = selectedItemId === (item.id || item.name || '');
@@ -602,7 +898,7 @@ const DashboardScreen = () => {
               const itemId = item.id || item.name || '';
               const itemValue =
                 item.id === 'all' ? null : item.name || item.label || null;
-              onSelectItem(itemValue, itemId);
+              onSelectItem(itemValue, itemId.toString());
             }}>
             <MaterialCommunityIcons
               name={item.icon}
@@ -622,6 +918,42 @@ const DashboardScreen = () => {
       contentContainerStyle={styles.filterChipsContainer}
     />
   );
+
+  // Render error message
+  const renderError = () => {
+    if (!error) return null;
+
+    return (
+      <View style={styles.errorContainer}>
+        <MaterialCommunityIcons name="alert-circle" size={24} color="#FF5252" />
+        <Text style={styles.errorText}>{error}</Text>
+        <TouchableOpacity style={styles.retryButton} onPress={fetchIncidents}>
+          <Text style={styles.retryButtonText}>Retry</Text>
+        </TouchableOpacity>
+      </View>
+    );
+  };
+
+  // Render refresh indicator overlay
+  const renderRefreshIndicator = () => {
+    if (!refreshing) return null;
+
+    return (
+      <View style={styles.refreshOverlay}>
+        <View style={styles.refreshIndicatorContainer}>
+          <ActivityIndicator size="small" color="#FFFFFF" />
+          <Text style={styles.refreshText}>Refreshing...</Text>
+        </View>
+      </View>
+    );
+  };
+
+  // Update dismissed incidents when user ID or incidents change
+  useEffect(() => {
+    if (user?.id && incidents.length > 0) {
+      updateDismissedIncidents(incidents);
+    }
+  }, [user?.id, incidents, updateDismissedIncidents]);
 
   return (
     <SafeAreaView style={styles.safeArea} edges={['bottom']}>
@@ -653,17 +985,19 @@ const DashboardScreen = () => {
 
         {renderFilterChips()}
 
-        {loading ? (
+        {loading && !refreshing ? (
           <ActivityIndicator
             size="large"
             color="#2C74B3"
             style={styles.loader}
           />
+        ) : error ? (
+          renderError()
         ) : viewMode === VIEW_MODES.LIST ? (
           <FlatList
             data={getFilteredIncidents()}
             renderItem={renderIncidentCard}
-            keyExtractor={item => item.id}
+            keyExtractor={item => item.id.toString()}
             contentContainerStyle={styles.listContainer}
             showsVerticalScrollIndicator={false}
             refreshControl={
@@ -671,6 +1005,8 @@ const DashboardScreen = () => {
                 refreshing={refreshing}
                 onRefresh={onRefresh}
                 colors={['#2C74B3']}
+                tintColor="#2C74B3"
+                progressBackgroundColor="#0A2647"
               />
             }
             ListEmptyComponent={
@@ -687,6 +1023,7 @@ const DashboardScreen = () => {
         ) : (
           <View style={styles.mapContainer}>
             <MapView
+              ref={mapRef}
               provider={PROVIDER_GOOGLE}
               style={styles.map}
               customMapStyle={mapDarkStyle}
@@ -718,6 +1055,9 @@ const DashboardScreen = () => {
             </View>
           </View>
         )}
+
+        {/* Render refresh indicator overlay */}
+        {renderRefreshIndicator()}
       </View>
     </SafeAreaView>
   );
@@ -910,6 +1250,55 @@ const styles = StyleSheet.create({
     color: '#8BABC7',
     fontWeight: '500',
   },
+  reporterContainer: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderTopWidth: 1,
+    borderTopColor: '#144272',
+    backgroundColor: '#0D2137',
+    gap: 8,
+  },
+  reporterInfoContainer: {
+    flex: 1,
+    gap: 4,
+  },
+  reporterDetail: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  reporterLabel: {
+    fontSize: 12,
+    color: '#8BABC7',
+  },
+  reporterName: {
+    fontSize: 12,
+    color: '#FFFFFF',
+    fontWeight: '500',
+  },
+  contactLabel: {
+    fontSize: 12,
+    color: '#8BABC7',
+  },
+  reporterContact: {
+    fontSize: 12,
+    color: '#FFFFFF',
+    fontWeight: '500',
+  },
+  statusBadge: {
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 12,
+    alignSelf: 'flex-start',
+  },
+  statusText: {
+    fontSize: 10,
+    color: '#FFFFFF',
+    fontWeight: 'bold',
+  },
   viewDetailsButton: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -1010,6 +1399,51 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: '#8BABC7',
     marginTop: 16,
+  },
+  errorContainer: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 20,
+  },
+  errorText: {
+    color: '#FF5252',
+    fontSize: 16,
+    marginTop: 10,
+    marginBottom: 20,
+    textAlign: 'center',
+  },
+  retryButton: {
+    backgroundColor: '#2C74B3',
+    paddingHorizontal: 20,
+    paddingVertical: 10,
+    borderRadius: 8,
+  },
+  retryButtonText: {
+    color: '#FFFFFF',
+    fontWeight: 'bold',
+  },
+  refreshOverlay: {
+    position: 'absolute',
+    top: 70,
+    left: 0,
+    right: 0,
+    alignItems: 'center',
+    zIndex: 1000,
+  },
+  refreshIndicatorContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(44, 116, 179, 0.8)',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 20,
+  },
+  refreshText: {
+    color: '#FFFFFF',
+    marginLeft: 8,
+    fontSize: 12,
+    fontWeight: '500',
   },
 });
 

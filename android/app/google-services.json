@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "875998451349",
+    "project_id": "safetysense-46844",
+    "storage_bucket": "safetysense-46844.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:875998451349:android:fe3aab351ba8587e7b6d9c",
+        "android_client_info": {
+          "package_name": "com.safetysensemobileapp"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyASW2gjmXeYKXstk9oaxxtfG4qHNfwNBJI"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
