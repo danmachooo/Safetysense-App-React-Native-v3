@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-unused-vars */
 'use client';
 
 /* eslint-disable react-native/no-inline-styles */
@@ -8,7 +9,7 @@ import {
 } from '@react-navigation/native';
 import {Provider, useDispatch, useSelector} from 'react-redux';
 import {createNativeStackNavigator} from '@react-navigation/native-stack';
-import {ActivityIndicator, StatusBar, View} from 'react-native';
+import {ActivityIndicator, StatusBar, View, Text} from 'react-native';
 import {useEffect, useRef} from 'react';
 import {NavigationService} from './services/NavigationService'; // Updated path
 
@@ -21,7 +22,8 @@ import ResponderNavigator from './navigation/ResponderNavigator';
 // Redux store
 import {store, type RootState, type AppDispatch} from './store';
 import {loadToken} from './store/slices/authSlice';
-
+import {NetworkInfo} from 'react-native-network-info';
+import {BASE_URL} from '@env';
 // Dark theme for the app
 const DarkTheme = {
   ...DefaultTheme,
@@ -65,28 +67,91 @@ const AppStack = () => (
 const LoadingScreen = () => (
   <View style={{flex: 1, justifyContent: 'center', alignItems: 'center'}}>
     <ActivityIndicator size="large" color="#2C74B3" />
+    <Text style={{color: '#FFFFFF', marginTop: 10}}>Loading...</Text>
   </View>
 );
+
+// Debug component to show auth state
+const DebugAuthState = () => {
+  const authState = useSelector((state: RootState) => state.auth);
+
+  if (__DEV__) {
+    return (
+      <View
+        style={{
+          position: 'absolute',
+          top: 50,
+          left: 10,
+          right: 10,
+          backgroundColor: 'rgba(0,0,0,0.8)',
+          padding: 10,
+          borderRadius: 5,
+          zIndex: 1000,
+        }}>
+        <Text style={{color: 'white', fontSize: 12}}>DEBUG - Auth State:</Text>
+        <Text style={{color: 'white', fontSize: 10}}>
+          isAuthenticated: {authState.isAuthenticated ? 'TRUE' : 'FALSE'}
+        </Text>
+        <Text style={{color: 'white', fontSize: 10}}>
+          token: {authState.token ? 'EXISTS' : 'NULL'}
+        </Text>
+        <Text style={{color: 'white', fontSize: 10}}>
+          user: {authState.user ? authState.user.email : 'NULL'}
+        </Text>
+        <Text style={{color: 'white', fontSize: 10}}>
+          loading: {authState.loading ? 'TRUE' : 'FALSE'}
+        </Text>
+        <Text style={{color: 'white', fontSize: 10}}>
+          error: {authState.error || 'NONE'}
+        </Text>
+      </View>
+    );
+  }
+  return null;
+};
 
 // Main navigator logic
 const MainNavigator = () => {
   const dispatch = useDispatch<AppDispatch>();
-  const {isAuthenticated, loading} = useSelector(
+  const {isAuthenticated, loading, token, user} = useSelector(
     (state: RootState) => state.auth,
   );
 
   useEffect(() => {
-    (async () => {
-      // This will load the auth token and subscribe to the topic if authenticated
-      dispatch(loadToken());
-    })();
+    console.log('App mounted, loading token...');
+    dispatch(loadToken());
   }, [dispatch]);
 
+  // Add console logs for debugging
+  useEffect(() => {
+    console.log('Auth state changed:', {
+      isAuthenticated,
+      loading,
+      hasToken: !!token,
+      hasUser: !!user,
+    });
+  }, [isAuthenticated, loading, token, user]);
+
   if (loading) {
+    console.log('App showing loading screen');
     return <LoadingScreen />;
   }
 
-  return isAuthenticated ? <AppStack /> : <AuthStack />;
+  NetworkInfo.getIPV4Address().then(ipv4Address => {
+    console.log('Local IP: ', ipv4Address);
+    console.log('Base IP: ', BASE_URL);
+  });
+
+  console.log(
+    'App navigation decision:',
+    isAuthenticated ? 'AppStack' : 'AuthStack',
+  );
+  return (
+    <>
+      {/* <DebugAuthState /> */}
+      {isAuthenticated ? <AppStack /> : <AuthStack />}
+    </>
+  );
 };
 
 // App entry

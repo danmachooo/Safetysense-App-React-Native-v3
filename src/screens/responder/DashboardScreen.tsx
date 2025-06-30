@@ -369,7 +369,7 @@ const DashboardScreen = () => {
       }
 
       // If no API key is provided, return a default message
-      if (!GOOGLE_API_KEY || GOOGLE_API_KEY === 'YOUR_GOOGLE_API_KEY') {
+      if (!GOOGLE_API_KEY) {
         return 'Location information unavailable';
       }
 
@@ -390,8 +390,8 @@ const DashboardScreen = () => {
 
       return address;
       // eslint-disable-next-line no-catch-shadow
-    } catch (error) {
-      console.error('Error in reverse geocoding:', error);
+    } catch (error: any) {
+      console.error('Error in reverse geocodinggg:', error.origin);
       return 'Error retrieving location';
     }
   };
@@ -409,8 +409,9 @@ const DashboardScreen = () => {
     let imageUrl = apiIncident.snapshotUrl;
     if (imageUrl && !imageUrl.startsWith('http')) {
       // Assuming your API base URL is defined somewhere
-      const baseUrl = BASE_URL || 'http://localhost:3000'; // Replace with your actual base URL
-      imageUrl = `${baseUrl}/${imageUrl}`;
+      const baseUrl = BASE_URL;
+      imageUrl = `${baseUrl}:3000/${imageUrl}`;
+      console.log('URL Image: ', imageUrl);
     }
 
     // Transform accepters
@@ -779,7 +780,7 @@ const DashboardScreen = () => {
             <Text style={styles.reporterContact}>{item.contact}</Text>
           </View>
         </View>
-        {item.status !== 'pending' && (
+        {item.status && (
           <View
             style={[
               styles.statusBadge,
