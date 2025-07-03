@@ -24,6 +24,7 @@ import {store, type RootState, type AppDispatch} from './store';
 import {loadToken} from './store/slices/authSlice';
 import {NetworkInfo} from 'react-native-network-info';
 import {BASE_URL} from '@env';
+
 // Dark theme for the app
 const DarkTheme = {
   ...DefaultTheme,
@@ -132,20 +133,22 @@ const MainNavigator = () => {
     });
   }, [isAuthenticated, loading, token, user]);
 
-  if (loading) {
-    console.log('App showing loading screen');
+  // Show loading screen only during initial token load
+  // Don't show loading screen during login attempts
+  if (loading && !token && !user) {
+    console.log('App showing loading screen - initial load');
     return <LoadingScreen />;
   }
 
   NetworkInfo.getIPV4Address().then(ipv4Address => {
-    console.log('Local IP: ', ipv4Address);
-    console.log('Base IP: ', BASE_URL);
+    console.log('IPV4: ', ipv4Address);
   });
 
   console.log(
     'App navigation decision:',
     isAuthenticated ? 'AppStack' : 'AuthStack',
   );
+
   return (
     <>
       {/* <DebugAuthState /> */}

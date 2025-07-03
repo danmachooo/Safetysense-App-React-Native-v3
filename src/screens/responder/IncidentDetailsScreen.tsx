@@ -66,6 +66,21 @@ const IncidentDetailsScreen = () => {
   const {user} = useAppSelector(state => state.auth);
   const isFocused = useIsFocused();
 
+  // Helper function to check if incident is dismissed by current user
+  const isIncidentDismissedByUser = useCallback(() => {
+    if (!user?.id || !currentIncident.dismissers) return false;
+    return currentIncident.dismissers.some(
+      dismisser => dismisser.id === user.id,
+    );
+  }, [user?.id, currentIncident.dismissers]);
+
+  // Helper function to check if incident is dismissed (status or by user)
+  const isIncidentDismissed = useCallback(() => {
+    return (
+      currentIncident.status === 'dismissed' || isIncidentDismissedByUser()
+    );
+  }, [currentIncident.status, isIncidentDismissedByUser]);
+
   // Memoize the refreshIncidentData function to prevent unnecessary re-renders
   const refreshIncidentData = useCallback(async () => {
     try {
@@ -104,9 +119,11 @@ const IncidentDetailsScreen = () => {
     };
   }, [isFocused, refreshIncidentData]);
 
-  // Determine incident status based solely on the current status
+  // Update the incident status logic
   const getIncidentStatus = useCallback(() => {
-    if (currentIncident.status === 'resolved' || resolvedTimestamp) {
+    if (currentIncident.status === 'dismissed' || isIncidentDismissedByUser()) {
+      return 'DISMISSED';
+    } else if (currentIncident.status === 'resolved' || resolvedTimestamp) {
       return INCIDENT_STATUS.RESOLVED;
     } else if (
       currentIncident.status === 'accepted' ||
@@ -116,12 +133,13 @@ const IncidentDetailsScreen = () => {
     } else {
       return INCIDENT_STATUS.PENDING;
     }
-  }, [currentIncident.status, resolvedTimestamp]);
+  }, [currentIncident.status, resolvedTimestamp, isIncidentDismissedByUser]);
 
   const incidentStatus = getIncidentStatus();
   const isPending = incidentStatus === INCIDENT_STATUS.PENDING;
   const isOngoing = incidentStatus === INCIDENT_STATUS.ONGOING;
   const isResolved = incidentStatus === INCIDENT_STATUS.RESOLVED;
+  const isDismissed = incidentStatus === 'DISMISSED';
 
   // Format timestamp to readable date and time
   const formatDateTime = (timestamp: string): string => {
@@ -221,25 +239,32 @@ const IncidentDetailsScreen = () => {
 
     setLoading(true);
     try {
-      const result = await incidentService.dismissIncident(
-        currentIncident.id,
-        user.id,
-        dismissReason.trim(),
-      );
+      let result;
+
+      if (user?.role === 'admin') {
+        result = await incidentService.globalDismissIncident(
+          currentIncident.id,
+          user.id,
+          dismissReason.trim(),
+        );
+      } else {
+        result = await incidentService.dismissIncident(
+          currentIncident.id,
+          user.id,
+          dismissReason.trim(),
+        );
+      }
       if (result.success) {
-        setDismissModalVisible(false);
-        setLoading(false);
         navigation.goBack();
       } else {
-        setLoading(false);
-        setDismissModalVisible(false);
         Alert.alert('Error', 'Failed to dismiss incident. Please try again.');
       }
     } catch (error) {
-      setLoading(false);
-      setDismissModalVisible(false);
       Alert.alert('Error', 'An unexpected error occurred.');
       console.error('Error dismissing incident:', error);
+    } finally {
+      setLoading(false);
+      setDismissModalVisible(false);
     }
   };
 
@@ -318,6 +343,12 @@ const IncidentDetailsScreen = () => {
           icon: 'check-circle',
           text: 'Resolved',
         };
+      case 'DISMISSED':
+        return {
+          style: styles.dismissedBadge,
+          icon: 'close-circle',
+          text: 'Dismissed',
+        };
       default:
         return {
           style: styles.pendingBadge,
@@ -359,17 +390,28 @@ const IncidentDetailsScreen = () => {
           {currentIncident.image ? (
             <Image
               source={{uri: currentIncident.image}}
-              style={styles.image}
+              style={[styles.image, isDismissed && styles.imageDisabled]}
               resizeMode="cover"
             />
           ) : (
-            <View style={[styles.image, styles.noImage]}>
+            <View
+              style={[
+                styles.image,
+                styles.noImage,
+                isDismissed && styles.imageDisabled,
+              ]}>
               <MaterialCommunityIcons
                 name="image-off"
                 size={50}
-                color="#8BABC7"
+                color={isDismissed ? '#5A5A5A' : '#8BABC7'}
               />
-              <Text style={styles.noImageText}>No image available</Text>
+              <Text
+                style={[
+                  styles.noImageText,
+                  isDismissed && styles.noImageTextDisabled,
+                ]}>
+                No image available
+              </Text>
             </View>
           )}
           <View style={styles.imageOverlay}>
@@ -383,6 +425,20 @@ const IncidentDetailsScreen = () => {
             </View>
           </View>
         </View>
+
+        {/* Show dismissal message if dismissed */}
+        {isDismissed && (
+          <View style={styles.dismissedMessageContainer}>
+            <MaterialCommunityIcons
+              name="information-outline"
+              size={20}
+              color="#FF5252"
+            />
+            <Text style={styles.dismissedMessageText}>
+              This incident has been dismissed and cannot be accepted.
+            </Text>
+          </View>
+        )}
 
         {/* Incident Details */}
         <View style={styles.detailsContainer}>
@@ -519,8 +575,8 @@ const IncidentDetailsScreen = () => {
           </View>
         </View>
 
-        {/* Action Buttons - Different buttons based on status */}
-        {isPending && (
+        {/* Action Buttons - Only show for pending incidents that aren't dismissed */}
+        {isPending && !isDismissed && (
           <View style={styles.actionContainer}>
             <TouchableOpacity
               style={[styles.actionButton, styles.dismissButton]}
@@ -553,7 +609,7 @@ const IncidentDetailsScreen = () => {
         )}
 
         {/* Mark as Resolved Button - Only show for ongoing incidents */}
-        {isOngoing && (
+        {isOngoing && !isDismissed && (
           <View style={styles.resolveContainer}>
             <TouchableOpacity
               style={styles.resolveButton}
@@ -585,6 +641,18 @@ const IncidentDetailsScreen = () => {
               color="#4CAF50"
             />
             <Text style={styles.resolvedStatusText}>Incident Resolved</Text>
+          </View>
+        )}
+
+        {/* Dismissed Confirmation - Show when incident is dismissed */}
+        {isDismissed && (
+          <View style={styles.dismissedStatusContainer}>
+            <MaterialCommunityIcons
+              name="close-circle"
+              size={24}
+              color="#FF5252"
+            />
+            <Text style={styles.dismissedStatusText}>Incident Dismissed</Text>
           </View>
         )}
 
@@ -694,11 +762,36 @@ const styles = StyleSheet.create({
   resolvedBadge: {
     backgroundColor: '#4CAF50', // Green for resolved
   },
+  dismissedBadge: {
+    backgroundColor: '#FF5252', // Red for dismissed
+  },
   statusText: {
     color: '#FFFFFF',
     fontSize: 12,
     fontWeight: 'bold',
     marginLeft: 4,
+  },
+  imageDisabled: {
+    opacity: 0.5,
+  },
+  noImageTextDisabled: {
+    color: '#5A5A5A',
+  },
+  dismissedMessageContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#2A1A1A',
+    borderLeftWidth: 4,
+    borderLeftColor: '#FF5252',
+    padding: 12,
+    margin: 16,
+    borderRadius: 8,
+  },
+  dismissedMessageText: {
+    color: '#FF5252',
+    fontSize: 14,
+    marginLeft: 8,
+    flex: 1,
   },
   detailsContainer: {
     padding: 16,
@@ -881,6 +974,22 @@ const styles = StyleSheet.create({
   },
   resolvedStatusText: {
     color: '#4CAF50',
+    fontSize: 16,
+    fontWeight: 'bold',
+    marginLeft: 8,
+  },
+  dismissedStatusContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 16,
+    backgroundColor: '#0A2647',
+    borderTopWidth: 1,
+    borderTopColor: '#144272',
+    marginTop: 4,
+  },
+  dismissedStatusText: {
+    color: '#FF5252',
     fontSize: 16,
     fontWeight: 'bold',
     marginLeft: 8,

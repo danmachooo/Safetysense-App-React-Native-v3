@@ -409,8 +409,7 @@ const DashboardScreen = () => {
     let imageUrl = apiIncident.snapshotUrl;
     if (imageUrl && !imageUrl.startsWith('http')) {
       // Assuming your API base URL is defined somewhere
-      const baseUrl = BASE_URL;
-      imageUrl = `${baseUrl}:3000/${imageUrl}`;
+      imageUrl = `${BASE_URL}:3000/${imageUrl}`;
       console.log('URL Image: ', imageUrl);
     }
 
@@ -612,6 +611,11 @@ const DashboardScreen = () => {
       return true;
     }
 
+    // Also check if status is 'dismissed'
+    if (incident.status === 'dismissed') {
+      return true;
+    }
+
     // Fallback to checking the incident.dismissers array
     if (!user?.id || !incident.dismissers) return false;
 
@@ -702,110 +706,196 @@ const DashboardScreen = () => {
   };
 
   // Render incident card
-  const renderIncidentCard = ({item}: {item: Incident}): JSX.Element => (
-    <TouchableOpacity
-      style={styles.card}
-      onPress={() => handleIncidentPress(item)}
-      activeOpacity={0.7}
-      testID={`incident-card-${item.id}`}>
-      <View style={styles.cardHeader}>
-        <View style={styles.cardTitleContainer}>
-          <View
-            style={[
-              styles.incidentTypeIndicator,
-              {backgroundColor: item.type?.color || '#2C74B3'},
-            ]}
-          />
-          <Text style={styles.cardTitle}>{item.title}</Text>
-        </View>
-        <View style={styles.timeContainer}>
-          <MaterialCommunityIcons
-            name="clock-outline"
-            size={14}
-            color="#8BABC7"
-          />
-          <Text style={styles.cardTime}>{formatTime(item.timestamp)}</Text>
-        </View>
-      </View>
+  const renderIncidentCard = ({item}: {item: Incident}): JSX.Element => {
+    const isDismissedByUser = isIncidentDismissedByUser(item);
+    const isDismissedStatus = item.status === 'dismissed';
+    const isDisabled = isDismissedByUser || isDismissedStatus;
 
-      <View style={styles.cardContent}>
-        <View style={styles.imageContainer}>
-          <Image
-            source={{uri: item.image}}
-            style={styles.cardImage}
-            resizeMode="cover"
-          />
-          {item.type && (
+    return (
+      <TouchableOpacity
+        style={[
+          styles.card,
+          isDisabled && styles.cardDisabled, // Add disabled styling
+        ]}
+        onPress={() => !isDisabled && handleIncidentPress(item)} // Disable press if dismissed
+        activeOpacity={isDisabled ? 1 : 0.7} // Remove press feedback if disabled
+        testID={`incident-card-${item.id}`}>
+        <View style={styles.cardHeader}>
+          <View style={styles.cardTitleContainer}>
             <View
               style={[
-                styles.incidentTypeIcon,
-                {backgroundColor: item.type.color},
+                styles.incidentTypeIndicator,
+                {backgroundColor: item.type?.color || '#2C74B3'},
+                isDisabled && styles.incidentTypeIndicatorDisabled,
+              ]}
+            />
+            <Text
+              style={[
+                styles.cardTitle,
+                isDisabled && styles.cardTitleDisabled,
               ]}>
-              <MaterialCommunityIcons
-                name={item.type.icon}
-                size={16}
-                color="#FFFFFF"
-              />
+              {item.title}
+            </Text>
+          </View>
+          <View style={styles.timeContainer}>
+            <MaterialCommunityIcons
+              name="clock-outline"
+              size={14}
+              color={isDisabled ? '#5A5A5A' : '#8BABC7'}
+            />
+            <Text
+              style={[styles.cardTime, isDisabled && styles.cardTimeDisabled]}>
+              {formatTime(item.timestamp)}
+            </Text>
+          </View>
+        </View>
+
+        <View style={styles.cardContent}>
+          <View style={styles.imageContainer}>
+            <Image
+              source={{uri: item.image}}
+              style={[styles.cardImage, isDisabled && styles.cardImageDisabled]}
+              resizeMode="cover"
+            />
+            {item.type && (
+              <View
+                style={[
+                  styles.incidentTypeIcon,
+                  {backgroundColor: item.type.color},
+                  isDisabled && styles.incidentTypeIconDisabled,
+                ]}>
+                <MaterialCommunityIcons
+                  name={item.type.icon}
+                  size={16}
+                  color="#FFFFFF"
+                />
+              </View>
+            )}
+          </View>
+          <View style={styles.cardDetails}>
+            <Text
+              style={[
+                styles.cardDescription,
+                isDisabled && styles.cardDescriptionDisabled,
+              ]}
+              numberOfLines={2}>
+              {item.description}
+            </Text>
+            <View style={styles.cardFooter}>
+              <View style={styles.locationContainer}>
+                <MaterialCommunityIcons
+                  name="map-marker"
+                  size={14}
+                  color={isDisabled ? '#5A5A5A' : '#2C74B3'}
+                />
+                <Text
+                  style={[
+                    styles.cardLocation,
+                    isDisabled && styles.cardLocationDisabled,
+                  ]}
+                  numberOfLines={1}>
+                  {item.location.address}
+                </Text>
+              </View>
+              <Text
+                style={[
+                  styles.cardDate,
+                  isDisabled && styles.cardDateDisabled,
+                ]}>
+                {formatDate(item.timestamp)}
+              </Text>
+            </View>
+          </View>
+        </View>
+
+        <View style={styles.reporterContainer}>
+          <View style={styles.reporterInfoContainer}>
+            <View style={styles.reporterDetail}>
+              <Text
+                style={[
+                  styles.reporterLabel,
+                  isDisabled && styles.reporterLabelDisabled,
+                ]}>
+                Reported by:
+              </Text>
+              <Text
+                style={[
+                  styles.reporterName,
+                  isDisabled && styles.reporterNameDisabled,
+                ]}>
+                {item.reportedBy}
+              </Text>
+            </View>
+            <View style={styles.reporterDetail}>
+              <Text
+                style={[
+                  styles.contactLabel,
+                  isDisabled && styles.contactLabelDisabled,
+                ]}>
+                Contact:
+              </Text>
+              <Text
+                style={[
+                  styles.reporterContact,
+                  isDisabled && styles.reporterContactDisabled,
+                ]}>
+                {item.contact}
+              </Text>
+            </View>
+          </View>
+          {item.status && (
+            <View
+              style={[
+                styles.statusBadge,
+                {
+                  backgroundColor: isDismissedStatus
+                    ? '#FF5252'
+                    : getStatusBadgeColor(item.status),
+                },
+              ]}>
+              <Text style={styles.statusText}>
+                {isDismissedStatus
+                  ? 'Dismissed'
+                  : item.status.charAt(0).toUpperCase() + item.status.slice(1)}
+              </Text>
             </View>
           )}
         </View>
-        <View style={styles.cardDetails}>
-          <Text style={styles.cardDescription} numberOfLines={2}>
-            {item.description}
-          </Text>
-          <View style={styles.cardFooter}>
-            <View style={styles.locationContainer}>
-              <MaterialCommunityIcons
-                name="map-marker"
-                size={14}
-                color="#2C74B3"
-              />
-              <Text style={styles.cardLocation} numberOfLines={1}>
-                {item.location.address}
-              </Text>
-            </View>
-            <Text style={styles.cardDate}>{formatDate(item.timestamp)}</Text>
-          </View>
-        </View>
-      </View>
 
-      <View style={styles.reporterContainer}>
-        <View style={styles.reporterInfoContainer}>
-          <View style={styles.reporterDetail}>
-            <Text style={styles.reporterLabel}>Reported by:</Text>
-            <Text style={styles.reporterName}>{item.reportedBy}</Text>
-          </View>
-          <View style={styles.reporterDetail}>
-            <Text style={styles.contactLabel}>Contact:</Text>
-            <Text style={styles.reporterContact}>{item.contact}</Text>
-          </View>
-        </View>
-        {item.status && (
-          <View
+        {/* Show different button text for dismissed incidents */}
+        <TouchableOpacity
+          style={[
+            styles.viewDetailsButton,
+            isDisabled && styles.viewDetailsButtonDisabled,
+          ]}
+          onPress={() => !isDisabled && handleIncidentPress(item)}
+          disabled={isDisabled}
+          testID={`view-details-${item.id}`}>
+          <Text
             style={[
-              styles.statusBadge,
-              {backgroundColor: getStatusBadgeColor(item.status)},
+              styles.viewDetailsText,
+              isDisabled && styles.viewDetailsTextDisabled,
             ]}>
-            <Text style={styles.statusText}>
-              {item.status.charAt(0).toUpperCase() + item.status.slice(1)}
-            </Text>
-          </View>
-        )}
-      </View>
-
-      <TouchableOpacity
-        style={styles.viewDetailsButton}
-        onPress={() => handleIncidentPress(item)}
-        testID={`view-details-${item.id}`}>
-        <Text style={styles.viewDetailsText}>View Details</Text>
-        <MaterialCommunityIcons
-          name="chevron-right"
-          size={16}
-          color="#2C74B3"
-        />
+            {isDismissedStatus ? 'Dismissed' : 'View Details'}
+          </Text>
+          {!isDisabled && (
+            <MaterialCommunityIcons
+              name="chevron-right"
+              size={16}
+              color="#2C74B3"
+            />
+          )}
+          {isDismissedStatus && (
+            <MaterialCommunityIcons
+              name="close-circle"
+              size={16}
+              color="#FF5252"
+            />
+          )}
+        </TouchableOpacity>
       </TouchableOpacity>
-    </TouchableOpacity>
-  );
+    );
+  };
 
   // Render map markers
   const renderMapMarkers = () => {
@@ -1445,6 +1535,53 @@ const styles = StyleSheet.create({
     marginLeft: 8,
     fontSize: 12,
     fontWeight: '500',
+  },
+  // Disabled styles for dismissed incidents
+  cardDisabled: {
+    opacity: 0.6,
+    backgroundColor: '#0A1F35',
+  },
+  cardTitleDisabled: {
+    color: '#5A5A5A',
+  },
+  cardTimeDisabled: {
+    color: '#5A5A5A',
+  },
+  cardDescriptionDisabled: {
+    color: '#5A5A5A',
+  },
+  cardLocationDisabled: {
+    color: '#5A5A5A',
+  },
+  cardDateDisabled: {
+    color: '#5A5A5A',
+  },
+  cardImageDisabled: {
+    opacity: 0.5,
+  },
+  incidentTypeIndicatorDisabled: {
+    opacity: 0.5,
+  },
+  incidentTypeIconDisabled: {
+    opacity: 0.7,
+  },
+  reporterLabelDisabled: {
+    color: '#5A5A5A',
+  },
+  reporterNameDisabled: {
+    color: '#5A5A5A',
+  },
+  contactLabelDisabled: {
+    color: '#5A5A5A',
+  },
+  reporterContactDisabled: {
+    color: '#5A5A5A',
+  },
+  viewDetailsButtonDisabled: {
+    backgroundColor: '#0A1F35',
+  },
+  viewDetailsTextDisabled: {
+    color: '#5A5A5A',
   },
 });
 

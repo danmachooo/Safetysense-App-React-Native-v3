@@ -9,6 +9,7 @@ export interface LocationData {
 }
 
 export interface IncidentSubmission {
+  ipAddress: string | null;
   reportedBy?: string;
   contact?: string;
   type: string;

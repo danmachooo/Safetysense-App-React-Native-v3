@@ -8,9 +8,11 @@ import {
 } from '../../store/slices/authSlice';
 import {BASE_URL, AUTH_TOKEN_KEY} from '@env';
 
+// const baseURL = 'http://192.168.1.59';
+
 const instance = axios.create({
   baseURL: `${BASE_URL}:3000/api`,
-  timeout: 10000,
+  timeout: 20000,
   headers: {
     'Content-Type': 'application/json',
   },

@@ -13,7 +13,6 @@ import {useNavigation} from '@react-navigation/native';
 
 // You can replace this with your actual logo
 const logoPlaceholder = require('../assets/logooo.png');
-
 // Simple Phone Icon Component
 const PhoneIcon = () => (
   <View style={styles.phoneIconContainer}>
@@ -52,6 +51,7 @@ const LoginScreen = () => {
         <View style={styles.logoContainer}>
           <Image source={logoPlaceholder} style={styles.logo} />
           <Text style={styles.appName}>SafetySense</Text>
+
           <Text style={styles.tagline}>Community Safety & Response System</Text>
         </View>
 

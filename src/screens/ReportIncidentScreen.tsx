@@ -1,7 +1,10 @@
+/* eslint-disable react/no-unstable-nested-components */
 'use client';
 
 import {useState, useEffect} from 'react';
+
 import {GOOGLE_API_KEY} from '@env';
+
 import {
   View,
   Text,
@@ -16,24 +19,34 @@ import {
   PermissionsAndroid,
   Linking,
   StatusBar,
+  Modal,
 } from 'react-native';
+
 import {useNavigation} from '@react-navigation/native';
+
 import MapView, {
   Marker,
   type MapPressEvent,
   PROVIDER_GOOGLE,
 } from 'react-native-maps';
+
 import Geolocation from '@react-native-community/geolocation';
+
 import Geocoder from 'react-native-geocoding';
+
 import {
   launchCamera,
   launchImageLibrary,
   type ImagePickerResponse,
   type CameraOptions,
 } from 'react-native-image-picker';
+
 import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
+
 import {SafeAreaView} from 'react-native-safe-area-context';
+
 import incidentService from '../services/api/incidentService';
+import {NetworkInfo} from 'react-native-network-info';
 
 Geocoder.init(GOOGLE_API_KEY);
 
@@ -53,6 +66,7 @@ const DEFAULT_LOCATION: LocationData = {
 
 const ReportIncidentScreen = () => {
   const navigation = useNavigation<any>(); // Type as any for now, ideally use proper navigation typing
+
   const [image, setImage] = useState<string | null>(null);
   const [uploadProgress, setUploadProgress] = useState<number>(0);
   const [description, setDescription] = useState<string>('');
@@ -64,6 +78,11 @@ const ReportIncidentScreen = () => {
   const [isLocationPermissionGranted, setIsLocationPermissionGranted] =
     useState<boolean>(false);
   const [isLocationLoading, setIsLocationLoading] = useState<boolean>(false);
+
+  // Modal states
+  const [showWelcomeModal, setShowWelcomeModal] = useState<boolean>(true);
+  const [showConfirmModal, setShowConfirmModal] = useState<boolean>(false);
+
   const [mapRegion, setMapRegion] = useState({
     latitude: DEFAULT_LOCATION.latitude,
     longitude: DEFAULT_LOCATION.longitude,
@@ -155,7 +174,6 @@ const ReportIncidentScreen = () => {
       async position => {
         // Clear the timeout since we got a position
         clearTimeout(locationTimeout);
-
         const {latitude, longitude} = position.coords;
         console.log('Current position retrieved:', {latitude, longitude});
 
@@ -171,6 +189,7 @@ const ReportIncidentScreen = () => {
             longitude,
             address,
           };
+
           console.log('Location retrieved successfully:', locationData);
           setLocation(locationData);
           setMapRegion(prev => ({
@@ -199,7 +218,6 @@ const ReportIncidentScreen = () => {
       error => {
         // Clear the timeout since we got an error response
         clearTimeout(locationTimeout);
-
         console.log('Location retrieval error:', error);
         // On error, set to default
         setIsLocationLoading(false);
@@ -247,6 +265,7 @@ const ReportIncidentScreen = () => {
           ],
         );
       }
+
       return false;
     } catch (err) {
       console.error('Camera permission error:', err);
@@ -317,6 +336,7 @@ const ReportIncidentScreen = () => {
         longitude: e.nativeEvent.coordinate.longitude,
         address: 'Selected Location', // This would be replaced with reverse geocoding
       };
+
       console.log('Location selected on map:', newLocation);
       setLocation(newLocation);
 
@@ -363,7 +383,8 @@ const ReportIncidentScreen = () => {
     }
   };
 
-  const handleSubmit = async () => {
+  // Handle initial submit button press - show confirmation modal
+  const handleSubmitPress = () => {
     if (!incidentType.trim()) {
       Alert.alert('Error', 'Please select an incident type');
       console.log('Submission failed: No incident type selected');
@@ -385,6 +406,13 @@ const ReportIncidentScreen = () => {
       return;
     }
 
+    // Show confirmation modal
+    setShowConfirmModal(true);
+  };
+
+  // Handle actual submission after confirmation
+  const handleConfirmedSubmit = async () => {
+    setShowConfirmModal(false);
     setLoading(true);
 
     try {
@@ -403,7 +431,6 @@ const ReportIncidentScreen = () => {
           imageUrl = await uploadImage(image);
         } catch (uploadError) {
           console.error('Image upload error:', uploadError);
-
           const continueWithoutImage = await new Promise(resolve => {
             Alert.alert(
               'Warning',
@@ -436,26 +463,25 @@ const ReportIncidentScreen = () => {
         imageUrl = 'https://placeholder.com/no-image-available.jpg';
       }
 
-      // Prepare submission data
+      const ipAddress = await NetworkInfo.getIPAddress();
+
       const submissionData = {
+        ipAddress,
         reportedBy, // Optional name
         contact, // Optional contact
         type: incidentType,
         snapshotUrl: imageUrl, // Use the URL returned from server or placeholder
         description,
-        longitude: location.longitude.toString(), // Convert to string to match model
-        latitude: location.latitude.toString(), // Convert to string to match model
+        longitude: location!.longitude.toString(),
+        latitude: location!.latitude.toString(),
       };
 
-      // Log the data being sent to backend
       console.log('DATA BEING SENT TO BACKEND:', submissionData);
 
-      // Use the service to submit the report
       const result = await incidentService.submitCitizenReport(submissionData);
 
       if (result.success) {
         setLoading(false);
-
         Alert.alert(
           'Report Submitted',
           'Thank you for your report. Authorities have been notified.',
@@ -486,9 +512,247 @@ const ReportIncidentScreen = () => {
     {id: 'Other', label: 'Other', icon: 'dots-horizontal'},
   ];
 
+  // Welcome Modal Component
+  const WelcomeModal = () => (
+    <Modal
+      animationType="fade"
+      transparent={true}
+      visible={showWelcomeModal}
+      onRequestClose={() => setShowWelcomeModal(false)}>
+      <View style={styles.modalOverlay}>
+        <View style={styles.modalContainer}>
+          {/* Header */}
+          <View style={styles.modalHeader}>
+            <View style={styles.modalIconContainer}>
+              <MaterialCommunityIcons
+                name="shield-check"
+                size={40}
+                color="#4CAF50"
+              />
+            </View>
+            <Text style={styles.modalTitle}>Welcome to SafetySense!</Text>
+            <Text style={styles.modalSubtitle}>
+              Help keep your community safe by reporting incidents
+            </Text>
+          </View>
+
+          {/* Content */}
+          <ScrollView
+            style={styles.modalContent}
+            showsVerticalScrollIndicator={false}>
+            {/* Terms Agreement */}
+            <View style={styles.agreementSection}>
+              <Text style={styles.agreementText}>
+                By continuing, you agree to our{' '}
+                <Text style={styles.linkText}>Terms of Service</Text> and{' '}
+                <Text style={styles.linkText}>Privacy Policy</Text>.
+              </Text>
+            </View>
+
+            {/* Privacy Section */}
+            <View style={styles.privacyCard}>
+              <View style={styles.privacyHeader}>
+                <MaterialCommunityIcons
+                  name="lock-outline"
+                  size={24}
+                  color="#2196F3"
+                />
+                <Text style={styles.privacyTitle}>We respect your privacy</Text>
+              </View>
+
+              <View style={styles.privacyList}>
+                <View style={styles.privacyItem}>
+                  <MaterialCommunityIcons
+                    name="account-off-outline"
+                    size={20}
+                    color="#8BABC7"
+                  />
+                  <Text style={styles.privacyItemText}>
+                    Your reports are anonymous by default
+                  </Text>
+                </View>
+
+                <View style={styles.privacyItem}>
+                  <MaterialCommunityIcons
+                    name="map-marker-outline"
+                    size={20}
+                    color="#8BABC7"
+                  />
+                  <Text style={styles.privacyItemText}>
+                    Your location is only used to identify where the incident
+                    occurred
+                  </Text>
+                </View>
+
+                <View style={styles.privacyItem}>
+                  <MaterialCommunityIcons
+                    name="security"
+                    size={20}
+                    color="#8BABC7"
+                  />
+                  <Text style={styles.privacyItemText}>
+                    IP addresses are logged to prevent spam or abuse
+                  </Text>
+                </View>
+              </View>
+            </View>
+
+            {/* Warning Section */}
+            <View style={styles.warningCard}>
+              <View style={styles.warningHeader}>
+                <MaterialCommunityIcons
+                  name="alert-circle-outline"
+                  size={24}
+                  color="#FF9800"
+                />
+                <Text style={styles.warningTitle}>Important Notice</Text>
+              </View>
+              <Text style={styles.warningText}>
+                Reports may be shared with authorized responders (e.g., MDRRMO)
+                to assist in emergencies.
+              </Text>
+            </View>
+          </ScrollView>
+
+          {/* Action Button */}
+          <TouchableOpacity
+            style={styles.primaryButton}
+            onPress={() => setShowWelcomeModal(false)}
+            activeOpacity={0.8}>
+            <Text style={styles.primaryButtonText}>I Understand, Continue</Text>
+            <MaterialCommunityIcons
+              name="arrow-right"
+              size={20}
+              color="#FFFFFF"
+            />
+          </TouchableOpacity>
+        </View>
+      </View>
+    </Modal>
+  );
+
+  // Confirmation Modal Component
+  const ConfirmationModal = () => (
+    <Modal
+      animationType="slide"
+      transparent={true}
+      visible={showConfirmModal}
+      onRequestClose={() => setShowConfirmModal(false)}>
+      <View style={styles.modalOverlay}>
+        <View style={styles.modalContainer}>
+          {/* Header */}
+          <View style={styles.modalHeader}>
+            <View
+              style={[styles.modalIconContainer, styles.warningIconContainer]}>
+              <MaterialCommunityIcons
+                name="alert-circle"
+                size={40}
+                color="#FF5722"
+              />
+            </View>
+            <Text style={styles.modalTitle}>Confirm Your Report</Text>
+            <Text style={styles.modalSubtitle}>
+              Please review the information below before submitting
+            </Text>
+          </View>
+
+          {/* Content */}
+          <ScrollView
+            style={styles.modalContent}
+            showsVerticalScrollIndicator={false}>
+            {/* Terms Reminder */}
+            <View style={styles.confirmationCard}>
+              <View style={styles.confirmationHeader}>
+                <MaterialCommunityIcons
+                  name="file-document-outline"
+                  size={24}
+                  color="#2196F3"
+                />
+                <Text style={styles.confirmationTitle}>Terms & Privacy</Text>
+              </View>
+              <Text style={styles.confirmationText}>
+                By submitting this report, you agree to our{' '}
+                <Text style={styles.linkText}>Terms of Service</Text> and{' '}
+                <Text style={styles.linkText}>Privacy Policy</Text>.
+              </Text>
+            </View>
+
+            {/* Location Sharing */}
+            <View style={styles.confirmationCard}>
+              <View style={styles.confirmationHeader}>
+                <MaterialCommunityIcons
+                  name="map-marker-radius"
+                  size={24}
+                  color="#4CAF50"
+                />
+                <Text style={styles.confirmationTitle}>Location Sharing</Text>
+              </View>
+              <Text style={styles.confirmationText}>
+                Your location will be shared with authorized responders to help
+                with emergency response.
+              </Text>
+            </View>
+
+            {/* Warning */}
+            <View style={styles.finalWarningCard}>
+              <View style={styles.finalWarningHeader}>
+                <MaterialCommunityIcons
+                  name="shield-alert-outline"
+                  size={24}
+                  color="#FF5722"
+                />
+                <Text style={styles.finalWarningTitle}>Important Reminder</Text>
+              </View>
+              <Text style={styles.finalWarningText}>
+                Please do not submit false or misleading information. False
+                reports may result in legal consequences.
+              </Text>
+            </View>
+          </ScrollView>
+
+          {/* Action Buttons */}
+          <View style={styles.modalButtonContainer}>
+            <TouchableOpacity
+              style={styles.secondaryButton}
+              onPress={() => setShowConfirmModal(false)}
+              activeOpacity={0.8}>
+              <Text style={styles.secondaryButtonText}>Cancel</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={styles.dangerButton}
+              onPress={handleConfirmedSubmit}
+              disabled={loading}
+              activeOpacity={0.8}>
+              {loading ? (
+                <ActivityIndicator size="small" color="#FFFFFF" />
+              ) : (
+                <>
+                  <MaterialCommunityIcons
+                    name="send"
+                    size={20}
+                    color="#FFFFFF"
+                  />
+                  <Text style={styles.dangerButtonText}>Submit Report</Text>
+                </>
+              )}
+            </TouchableOpacity>
+          </View>
+        </View>
+      </View>
+    </Modal>
+  );
+
   return (
     <SafeAreaView style={styles.safeArea} edges={['top']}>
       <StatusBar barStyle="light-content" backgroundColor="#0A1929" />
+
+      {/* Welcome Modal */}
+      <WelcomeModal />
+
+      {/* Confirmation Modal */}
+      <ConfirmationModal />
+
       <ScrollView
         style={styles.container}
         contentContainerStyle={styles.contentContainer}>
@@ -733,7 +997,7 @@ const ReportIncidentScreen = () => {
         {/* Submit Button */}
         <TouchableOpacity
           style={styles.submitButton}
-          onPress={handleSubmit}
+          onPress={handleSubmitPress}
           disabled={loading}>
           {loading ? (
             <ActivityIndicator color="#FFFFFF" size="small" />
@@ -1184,6 +1448,257 @@ const styles = StyleSheet.create({
   progressBar: {
     height: '100%',
     backgroundColor: '#1E88E5',
+  },
+
+  // Enhanced Modal Styles
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.85)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+  },
+  modalContainer: {
+    backgroundColor: '#0A2647',
+    borderRadius: 20,
+    width: '100%',
+    maxWidth: 420,
+    maxHeight: '85%',
+    shadowColor: '#000',
+    shadowOffset: {width: 0, height: 10},
+    shadowOpacity: 0.3,
+    shadowRadius: 20,
+    elevation: 10,
+    borderWidth: 1,
+    borderColor: '#144272',
+  },
+  modalHeader: {
+    alignItems: 'center',
+    paddingTop: 32,
+    paddingHorizontal: 24,
+    paddingBottom: 20,
+  },
+  modalIconContainer: {
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+    backgroundColor: 'rgba(76, 175, 80, 0.15)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  warningIconContainer: {
+    backgroundColor: 'rgba(255, 87, 34, 0.15)',
+  },
+  modalTitle: {
+    fontSize: 24,
+    fontWeight: 'bold',
+    color: '#FFFFFF',
+    textAlign: 'center',
+    marginBottom: 8,
+  },
+  modalSubtitle: {
+    fontSize: 16,
+    color: '#8BABC7',
+    textAlign: 'center',
+    lineHeight: 22,
+  },
+  modalContent: {
+    paddingHorizontal: 24,
+    maxHeight: 400,
+  },
+
+  // Agreement Section
+  agreementSection: {
+    marginBottom: 24,
+  },
+  agreementText: {
+    fontSize: 16,
+    color: '#B8C7D9',
+    textAlign: 'center',
+    lineHeight: 24,
+  },
+  linkText: {
+    color: '#2196F3',
+    fontWeight: '600',
+    textDecorationLine: 'underline',
+  },
+
+  // Privacy Card
+  privacyCard: {
+    backgroundColor: '#0D2137',
+    borderRadius: 16,
+    padding: 20,
+    marginBottom: 20,
+    borderWidth: 1,
+    borderColor: '#1E4976',
+  },
+  privacyHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  privacyTitle: {
+    fontSize: 18,
+    fontWeight: '600',
+    color: '#FFFFFF',
+    marginLeft: 12,
+  },
+  privacyList: {
+    gap: 12,
+  },
+  privacyItem: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 12,
+  },
+  privacyItemText: {
+    fontSize: 15,
+    color: '#B8C7D9',
+    lineHeight: 22,
+    flex: 1,
+  },
+
+  // Warning Card
+  warningCard: {
+    backgroundColor: 'rgba(255, 152, 0, 0.1)',
+    borderRadius: 16,
+    padding: 20,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 152, 0, 0.3)',
+    marginBottom: 20,
+  },
+  warningHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  warningTitle: {
+    fontSize: 18,
+    fontWeight: '600',
+    color: '#FF9800',
+    marginLeft: 12,
+  },
+  warningText: {
+    fontSize: 15,
+    color: '#FFB74D',
+    lineHeight: 22,
+  },
+
+  // Confirmation Cards
+  confirmationCard: {
+    backgroundColor: '#0D2137',
+    borderRadius: 16,
+    padding: 20,
+    marginBottom: 16,
+    borderWidth: 1,
+    borderColor: '#1E4976',
+  },
+  confirmationHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  confirmationTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#FFFFFF',
+    marginLeft: 12,
+  },
+  confirmationText: {
+    fontSize: 15,
+    color: '#B8C7D9',
+    lineHeight: 22,
+  },
+
+  // Final Warning Card
+  finalWarningCard: {
+    backgroundColor: 'rgba(255, 87, 34, 0.1)',
+    borderRadius: 16,
+    padding: 20,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 87, 34, 0.3)',
+    marginBottom: 20,
+  },
+  finalWarningHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  finalWarningTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#FF5722',
+    marginLeft: 12,
+  },
+  finalWarningText: {
+    fontSize: 15,
+    color: '#FF8A65',
+    lineHeight: 22,
+    fontWeight: '500',
+  },
+
+  // Button Styles
+  primaryButton: {
+    backgroundColor: '#2196F3',
+    paddingVertical: 16,
+    paddingHorizontal: 24,
+    borderRadius: 16,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    margin: 24,
+    shadowColor: '#2196F3',
+    shadowOffset: {width: 0, height: 4},
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 6,
+  },
+  primaryButtonText: {
+    color: '#FFFFFF',
+    fontSize: 16,
+    fontWeight: 'bold',
+    marginRight: 8,
+  },
+  modalButtonContainer: {
+    flexDirection: 'row',
+    paddingHorizontal: 24,
+    paddingBottom: 24,
+    gap: 12,
+  },
+  secondaryButton: {
+    flex: 1,
+    backgroundColor: '#132F4C',
+    paddingVertical: 16,
+    borderRadius: 16,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#1E4976',
+  },
+  secondaryButtonText: {
+    color: '#B8C7D9',
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  dangerButton: {
+    flex: 2,
+    backgroundColor: '#FF5722',
+    paddingVertical: 16,
+    borderRadius: 16,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#FF5722',
+    shadowOffset: {width: 0, height: 4},
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 6,
+  },
+  dangerButtonText: {
+    color: '#FFFFFF',
+    fontSize: 16,
+    fontWeight: 'bold',
+    marginLeft: 8,
   },
 });
 

@@ -100,6 +100,7 @@ const ResponderLoginScreen = () => {
   const handleBack = (): void => {
     navigation.goBack();
   };
+  const logoPlaceholder = require('../assets/logooo.png');
 
   return (
     <SafeAreaView style={styles.safeArea}>
@@ -112,10 +113,7 @@ const ResponderLoginScreen = () => {
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
         <View style={styles.logoContainer}>
           <View style={styles.logoWrapper}>
-            <Image
-              source={{uri: 'https://picsum.photos/200/300'}}
-              style={styles.logo}
-            />
+            <Image source={logoPlaceholder} style={styles.logo} />
           </View>
           <Text style={styles.appName}>Welcome, Responder</Text>
           <Text style={styles.responderText}>

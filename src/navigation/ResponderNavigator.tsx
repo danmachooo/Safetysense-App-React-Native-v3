@@ -36,6 +36,7 @@ export interface IncidentType {
 }
 
 interface Incident {
+  dismissedAt?: string | null; // ✅ Fixed - make it optional and allow null
   id: number;
   title: string;
   description: string;
