@@ -18,6 +18,7 @@ import {
   initializeFCM,
 } from '../../services/firebase/fcmService';
 import {RootState} from '../../store/index';
+import {enableLegacyWebImplementation} from 'react-native-gesture-handler';
 
 interface User {
   id: number;
@@ -141,11 +142,12 @@ export const loginUser = createAsyncThunk(
   async ({email, password}: {email: string; password: string}, thunkAPI) => {
     try {
       const fcmToken = await AsyncStorage.getItem(FCM_TOKEN_KEY);
-
+      const loginSource = 'app';
       const response = await axios.post('/auth/login', {
         email,
         password,
         fcmToken,
+        loginSource,
       });
       console.log('Login response:', response.data);
       const {access, refresh, user} = response.data.data;

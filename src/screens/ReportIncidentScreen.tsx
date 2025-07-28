@@ -1,10 +1,7 @@
 /* eslint-disable react/no-unstable-nested-components */
 'use client';
-
-import {useState, useEffect} from 'react';
-
+import {useState, useEffect, useCallback} from 'react';
 import {GOOGLE_API_KEY} from '@env';
-
 import {
   View,
   Text,
@@ -21,30 +18,17 @@ import {
   StatusBar,
   Modal,
 } from 'react-native';
-
 import {useNavigation} from '@react-navigation/native';
-
-import MapView, {
-  Marker,
-  type MapPressEvent,
-  PROVIDER_GOOGLE,
-} from 'react-native-maps';
-
+import MapView, {Marker, PROVIDER_GOOGLE} from 'react-native-maps';
 import Geolocation from '@react-native-community/geolocation';
-
 import Geocoder from 'react-native-geocoding';
-
 import {
   launchCamera,
-  launchImageLibrary,
   type ImagePickerResponse,
   type CameraOptions,
 } from 'react-native-image-picker';
-
 import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
-
 import {SafeAreaView} from 'react-native-safe-area-context';
-
 import incidentService from '../services/api/incidentService';
 import {NetworkInfo} from 'react-native-network-info';
 
@@ -57,38 +41,87 @@ interface LocationData {
   address: string;
 }
 
-// Socorro, Oriental Mindoro coordinates
-const DEFAULT_LOCATION: LocationData = {
-  latitude: 13.0584,
-  longitude: 121.4066,
-  address: 'Socorro, Oriental Mindoro, Philippines',
-};
-
 const ReportIncidentScreen = () => {
-  const navigation = useNavigation<any>(); // Type as any for now, ideally use proper navigation typing
-
+  const navigation = useNavigation<any>();
   const [image, setImage] = useState<string | null>(null);
   const [uploadProgress, setUploadProgress] = useState<number>(0);
   const [description, setDescription] = useState<string>('');
   const [location, setLocation] = useState<LocationData | null>(null);
   const [loading, setLoading] = useState<boolean>(false);
   const [incidentType, setIncidentType] = useState<string>('');
-  const [reportedBy, setReportedBy] = useState<string>(''); // Added for name
-  const [contact, setContact] = useState<string>(''); // Added for contact
+  const [reportedBy, setReportedBy] = useState<string>('');
+  const [contact, setContact] = useState<string>('');
   const [isLocationPermissionGranted, setIsLocationPermissionGranted] =
     useState<boolean>(false);
   const [isLocationLoading, setIsLocationLoading] = useState<boolean>(false);
+  const [locationError, setLocationError] = useState<string | null>(null);
 
   // Modal states
   const [showWelcomeModal, setShowWelcomeModal] = useState<boolean>(true);
   const [showConfirmModal, setShowConfirmModal] = useState<boolean>(false);
 
   const [mapRegion, setMapRegion] = useState({
-    latitude: DEFAULT_LOCATION.latitude,
-    longitude: DEFAULT_LOCATION.longitude,
+    latitude: 13.0584, // Initial center, will be updated with user location
+    longitude: 121.4066,
     latitudeDelta: 0.0922,
     longitudeDelta: 0.0421,
   });
+
+  const getCurrentLocation = useCallback(() => {
+    console.log('Getting current precise location...');
+    setIsLocationLoading(true);
+    setLocationError(null);
+
+    // Enhanced location request with multiple attempts
+    const attemptLocationRequest = (attemptNumber = 1) => {
+      const maxAttempts = 3;
+      const options = {
+        enableHighAccuracy: attemptNumber === 1, // High accuracy on first attempt
+        timeout: attemptNumber === 1 ? 20000 : 15000, // Longer timeout for first attempt
+        maximumAge: attemptNumber === 1 ? 30000 : 60000, // Accept newer positions on first attempt
+      };
+
+      console.log(
+        `Location request attempt ${attemptNumber}/${maxAttempts} with options:`,
+        options,
+      );
+
+      Geolocation.getCurrentPosition(
+        position => {
+          console.log(
+            `Location request successful on attempt ${attemptNumber}`,
+          );
+          handleLocationSuccess(position);
+        },
+        error => {
+          console.log(
+            `Location request failed on attempt ${attemptNumber}:`,
+            error,
+          );
+          if (attemptNumber < maxAttempts) {
+            // Try again with different settings
+            console.log(
+              `Retrying location request (attempt ${attemptNumber + 1})...`,
+            );
+            setLocationError(
+              `Location attempt ${attemptNumber} failed, retrying with different settings...`,
+            );
+            setTimeout(() => {
+              attemptLocationRequest(attemptNumber + 1);
+            }, 1000); // Wait 1 second before retry
+          } else {
+            // All attempts failed
+            handleLocationError(error);
+          }
+        },
+        options,
+      );
+    };
+
+    // Start the location request
+    attemptLocationRequest(1);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Get current location on component mount
   useEffect(() => {
@@ -98,19 +131,13 @@ const ReportIncidentScreen = () => {
   // Update location when permission is granted
   useEffect(() => {
     if (isLocationPermissionGranted) {
-      getLocation();
+      getCurrentLocation();
     } else {
-      console.log('Location permission not granted, using default');
-      setLocation(DEFAULT_LOCATION);
-      setMapRegion(prev => ({
-        ...prev,
-        latitude: DEFAULT_LOCATION.latitude,
-        longitude: DEFAULT_LOCATION.longitude,
-      }));
+      console.log('Location permission not granted');
+      setLocationError('Location permission is required to report incidents');
     }
-  }, [isLocationPermissionGranted]);
+  }, [getCurrentLocation, isLocationPermissionGranted]);
 
-  // Update requestLocationPermission to handle async properly
   const requestLocationPermission = async () => {
     if (Platform.OS === 'ios') {
       try {
@@ -120,6 +147,7 @@ const ReportIncidentScreen = () => {
       } catch (error) {
         console.warn('iOS location permission error:', error);
         setIsLocationPermissionGranted(false);
+        setLocationError('Location permission denied');
         return;
       }
     }
@@ -127,112 +155,338 @@ const ReportIncidentScreen = () => {
     try {
       const granted = await PermissionsAndroid.request(
         PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION,
+        {
+          title: 'Location Permission Required',
+          message:
+            'This app requires precise location access to accurately report incident locations. Your exact location is essential for emergency response.',
+          buttonNeutral: 'Ask Me Later',
+          buttonNegative: 'Cancel',
+          buttonPositive: 'OK',
+        },
       );
 
       if (granted === PermissionsAndroid.RESULTS.GRANTED) {
         console.log('Location Permission Granted!');
         setIsLocationPermissionGranted(true);
+        setLocationError(null);
       } else {
         console.log('Location Permission Denied');
         setIsLocationPermissionGranted(false);
-        setLocation(DEFAULT_LOCATION);
-        setMapRegion(prev => ({
-          ...prev,
-          latitude: DEFAULT_LOCATION.latitude,
-          longitude: DEFAULT_LOCATION.longitude,
-        }));
+        setLocationError(
+          'Location permission is required for accurate incident reporting',
+        );
+        Alert.alert(
+          'Location Permission Required',
+          'This app cannot function without precise location access. Please enable location permissions in settings to report incidents.',
+          [
+            {text: 'Cancel', style: 'cancel'},
+            {text: 'Open Settings', onPress: () => Linking.openSettings()},
+          ],
+        );
       }
     } catch (err) {
       console.warn('Location permission error:', err);
       setIsLocationPermissionGranted(false);
-      setLocation(DEFAULT_LOCATION);
-      setMapRegion(prev => ({
-        ...prev,
-        latitude: DEFAULT_LOCATION.latitude,
-        longitude: DEFAULT_LOCATION.longitude,
-      }));
+      setLocationError('Failed to request location permission');
     }
   };
 
-  const getLocation = () => {
-    console.log('Getting current location...');
-    setIsLocationLoading(true);
+  const formatHumanReadableAddress = (result: any): string => {
+    const addressComponents = result.address_components;
+    const formattedAddress = result.formatted_address;
 
-    // Set a timeout to handle cases where Geolocation.getCurrentPosition might hang
-    const locationTimeout = setTimeout(() => {
-      console.log('Location request taking too long, using default location');
-      setIsLocationLoading(false);
-      setLocation(DEFAULT_LOCATION);
+    // Helper function to find component by type
+    const findComponent = (types: string[]) => {
+      return addressComponents.find((comp: any) =>
+        types.some((type: string) => comp.types.includes(type)),
+      );
+    };
+
+    // Extract specific components with enhanced detection
+    const streetNumber = findComponent(['street_number'])?.long_name || '';
+    const route = findComponent(['route'])?.long_name || '';
+
+    // Enhanced barangay detection
+    let barangay =
+      findComponent([
+        'sublocality_level_1',
+        'sublocality_level_2',
+        'sublocality',
+        'neighborhood',
+        'political',
+      ])?.long_name || '';
+
+    // Enhanced city detection
+    let city =
+      findComponent([
+        'locality',
+        'administrative_area_level_2',
+        'administrative_area_level_3',
+        'sublocality_level_1',
+      ])?.long_name || '';
+
+    const municipality =
+      findComponent(['administrative_area_level_2'])?.long_name || '';
+    const province =
+      findComponent(['administrative_area_level_1'])?.long_name || '';
+    // const country = findComponent(['country'])?.long_name || '';
+
+    // Clean and validate components
+    const cleanComponent = (component: string) => {
+      if (!component) {
+        return '';
+      }
+      return component
+        .replace(/\b(City|Municipality|Poblacion|Proper)\b/gi, '')
+        .replace(/\s+/g, ' ')
+        .trim();
+    };
+
+    // Fix common misclassifications
+    if (barangay && barangay.toLowerCase().includes('city')) {
+      if (!city || city === barangay) {
+        city = barangay;
+        barangay = '';
+      }
+    }
+
+    // Use municipality as city if city is not available
+    if (!city && municipality) {
+      city = municipality;
+    }
+
+    // Remove duplicates
+    if (barangay && city && barangay.toLowerCase() === city.toLowerCase()) {
+      barangay = '';
+    }
+
+    // Build address parts
+    const addressParts = [];
+
+    // Add street address
+    if (streetNumber && route) {
+      const cleanRoute = cleanComponent(route);
+      if (cleanRoute && !cleanRoute.toLowerCase().includes('unnamed')) {
+        addressParts.push(`${streetNumber} ${cleanRoute}`);
+      }
+    } else if (route) {
+      const cleanRoute = cleanComponent(route);
+      if (cleanRoute && !cleanRoute.toLowerCase().includes('unnamed')) {
+        addressParts.push(cleanRoute);
+      }
+    }
+
+    // Add barangay with proper formatting
+    if (barangay) {
+      const cleanBarangay = cleanComponent(barangay);
+      if (
+        cleanBarangay &&
+        cleanBarangay.toLowerCase() !== city?.toLowerCase() &&
+        !cleanBarangay.toLowerCase().includes('city') &&
+        cleanBarangay.length > 2
+      ) {
+        // Add proper prefix
+        const barangayFormatted =
+          cleanBarangay.toLowerCase().startsWith('barangay') ||
+          cleanBarangay.toLowerCase().startsWith('brgy')
+            ? cleanBarangay
+            : `Brgy. ${cleanBarangay}`;
+        addressParts.push(barangayFormatted);
+      }
+    }
+
+    // Add city/municipality
+    if (city) {
+      const cleanCity = cleanComponent(city);
+      if (cleanCity) {
+        // Add "City" suffix if it's a city but doesn't have it
+        const cityFormatted = cleanCity.toLowerCase().includes('city')
+          ? cleanCity
+          : `${cleanCity} City`;
+        addressParts.push(cityFormatted);
+      }
+    }
+
+    // Add province if different and meaningful
+    if (province && province.toLowerCase() !== city?.toLowerCase()) {
+      const cleanProvince = cleanComponent(province);
+      if (
+        cleanProvince &&
+        cleanProvince.toLowerCase() !== city?.toLowerCase()
+      ) {
+        addressParts.push(cleanProvince);
+      }
+    }
+
+    // Build final address
+    let humanReadableAddress = '';
+    if (addressParts.length > 0) {
+      humanReadableAddress = addressParts.join(', ');
+    } else {
+      // Enhanced fallback cleaning
+      humanReadableAddress = formattedAddress
+        .replace(/^\d+\+\w+\s*/, '') // Remove plus codes
+        .replace(/,\s*Philippines$/i, '') // Remove Philippines suffix
+        .replace(/,\s*Unnamed Road/gi, '') // Remove unnamed roads
+        .replace(/,\s*Poblacion/gi, '') // Remove generic Poblacion
+        .replace(/\b(Municipality)\b/gi, '') // Remove Municipality word
+        .replace(/,\s*,/g, ',') // Fix double commas
+        .replace(/^\s*,\s*/, '') // Remove leading comma
+        .replace(/\s*,\s*$/, '') // Remove trailing comma
+        .replace(/\s+/g, ' ') // Normalize spaces
+        .trim();
+    }
+
+    // Final validation and formatting
+    if (!humanReadableAddress || humanReadableAddress.length < 5) {
+      // Last resort: use available meaningful parts
+      const fallbackParts = [city, province].filter(
+        part => part && part.trim() && !part.toLowerCase().includes('unnamed'),
+      );
+      humanReadableAddress =
+        fallbackParts.length > 0
+          ? fallbackParts.join(', ')
+          : 'Current Location';
+    }
+
+    // Proper case formatting
+    humanReadableAddress = humanReadableAddress
+      .split(' ')
+      .map(word => {
+        // Handle special cases
+        if (
+          word.toLowerCase() === 'brgy.' ||
+          word.toLowerCase() === 'st.' ||
+          word.toLowerCase() === 'ave.'
+        ) {
+          return word.charAt(0).toUpperCase() + word.slice(1).toLowerCase();
+        }
+        return word.charAt(0).toUpperCase() + word.slice(1).toLowerCase();
+      })
+      .join(' ');
+
+    return humanReadableAddress;
+  };
+
+  const handleLocationSuccess = async (position: any) => {
+    const {latitude, longitude, accuracy} = position.coords;
+    console.log('Precise location retrieved:', {latitude, longitude, accuracy});
+
+    // Provide feedback based on accuracy
+    if (accuracy > 100) {
+      console.warn('Location accuracy is very low:', accuracy, 'meters');
+      setLocationError(
+        `Location accuracy: ${Math.round(
+          accuracy,
+        )}m - Very low accuracy. Consider moving to an open area for better precision.`,
+      );
+    } else if (accuracy > 50) {
+      console.warn('Location accuracy is moderate:', accuracy, 'meters');
+      setLocationError(
+        `Location accuracy: ${Math.round(
+          accuracy,
+        )}m - Moderate accuracy. Moving to an open area may improve precision.`,
+      );
+    } else {
+      console.log('Good location accuracy:', accuracy, 'meters');
+      setLocationError(null);
+    }
+
+    try {
+      // Reverse geocode coordinates with enhanced settings
+      const json = await Geocoder.from(latitude, longitude);
+      let humanReadableAddress = 'Current Location';
+
+      if (json.results && json.results.length > 0) {
+        const result = json.results[0];
+        humanReadableAddress = formatHumanReadableAddress(result);
+        console.log('Address formatting result:', {
+          original: result.formatted_address,
+          humanReadable: humanReadableAddress,
+          components: result.address_components,
+        });
+      }
+
+      const locationData = {
+        latitude,
+        longitude,
+        address: humanReadableAddress,
+      };
+
+      console.log('Location set successfully:', locationData);
+      setLocation(locationData);
       setMapRegion(prev => ({
         ...prev,
-        latitude: DEFAULT_LOCATION.latitude,
-        longitude: DEFAULT_LOCATION.longitude,
+        latitude,
+        longitude,
+        latitudeDelta: 0.005, // Zoom in for precise location
+        longitudeDelta: 0.005,
       }));
-    }, 20000); // 20 seconds timeout as a fallback
+    } catch (error) {
+      console.log('Geocoding error: ', error);
+      // Still set the location even if geocoding fails
+      const locationData = {
+        latitude,
+        longitude,
+        address: `Lat: ${latitude.toFixed(6)}, Lng: ${longitude.toFixed(6)}`, // Show coordinates as fallback
+      };
+      setLocation(locationData);
+      setMapRegion(prev => ({
+        ...prev,
+        latitude,
+        longitude,
+        latitudeDelta: 0.005,
+        longitudeDelta: 0.005,
+      }));
+    } finally {
+      setIsLocationLoading(false);
+    }
+  };
 
-    Geolocation.getCurrentPosition(
-      async position => {
-        // Clear the timeout since we got a position
-        clearTimeout(locationTimeout);
-        const {latitude, longitude} = position.coords;
-        console.log('Current position retrieved:', {latitude, longitude});
+  const handleLocationError = (error: any) => {
+    console.log('Final location retrieval error:', error);
+    setIsLocationLoading(false);
+    let errorMessage = 'Failed to get current location';
+    let actionMessage = '';
 
-        try {
-          // Reverse geocode coords
-          const json = await Geocoder.from(latitude, longitude);
-          const address =
-            json.results[0]?.formatted_address || 'Unknown Location';
+    switch (error.code) {
+      case 1: // PERMISSION_DENIED
+        errorMessage = 'Location permission denied';
+        actionMessage =
+          'Please enable location permissions in settings to continue.';
+        break;
+      case 2: // POSITION_UNAVAILABLE
+        errorMessage = 'Location unavailable';
+        actionMessage =
+          'Please check your GPS settings and ensure you have a clear view of the sky.';
+        break;
+      case 3: // TIMEOUT
+        errorMessage = 'Location request timed out';
+        actionMessage =
+          'Please try again or move to an area with better GPS reception.';
+        break;
+      case 4: // ACTIVITY_NULL (Android specific)
+        errorMessage = 'GPS service unavailable';
+        actionMessage =
+          'Please enable GPS/Location services in your device settings.';
+        break;
+      default:
+        errorMessage = 'Unknown location error';
+        actionMessage = 'Please try again or restart the app.';
+    }
 
-          // Update both location and mapRegion
-          const locationData = {
-            latitude,
-            longitude,
-            address,
-          };
+    setLocationError(`${errorMessage} - ${actionMessage}`);
 
-          console.log('Location retrieved successfully:', locationData);
-          setLocation(locationData);
-          setMapRegion(prev => ({
-            ...prev,
-            latitude,
-            longitude,
-          }));
-        } catch (error) {
-          console.log('Geocoding error: ', error);
-          // Still set the location even if geocoding fails
-          const locationData = {
-            latitude,
-            longitude,
-            address: 'Unknown Location',
-          };
-          setLocation(locationData);
-          setMapRegion(prev => ({
-            ...prev,
-            latitude,
-            longitude,
-          }));
-        } finally {
-          setIsLocationLoading(false);
-        }
-      },
-      error => {
-        // Clear the timeout since we got an error response
-        clearTimeout(locationTimeout);
-        console.log('Location retrieval error:', error);
-        // On error, set to default
-        setIsLocationLoading(false);
-        setLocation(DEFAULT_LOCATION);
-        setMapRegion(prev => ({
-          ...prev,
-          latitude: DEFAULT_LOCATION.latitude,
-          longitude: DEFAULT_LOCATION.longitude,
-        }));
-      },
-      {
-        enableHighAccuracy: false, // Set to false to prioritize faster response over accuracy
-        timeout: 15000,
-        maximumAge: 60000, // Accept positions up to 1 minute old
-      },
+    Alert.alert(
+      'Location Required',
+      `${errorMessage}. ${actionMessage}\n\nThis app requires your exact location to report incidents accurately.`,
+      [
+        {text: 'Try Again', onPress: getCurrentLocation},
+        {
+          text: 'Settings',
+          onPress: () => Linking.openSettings(),
+        },
+      ],
     );
   };
 
@@ -265,7 +519,6 @@ const ReportIncidentScreen = () => {
           ],
         );
       }
-
       return false;
     } catch (err) {
       console.error('Camera permission error:', err);
@@ -275,7 +528,6 @@ const ReportIncidentScreen = () => {
 
   const handleTakePhoto = async () => {
     try {
-      // Request camera permission
       const hasPermission = await requestCameraPermission();
       if (!hasPermission) {
         return;
@@ -284,7 +536,7 @@ const ReportIncidentScreen = () => {
       const options: CameraOptions = {
         mediaType: 'photo',
         quality: 0.8,
-        saveToPhotos: true, // Optional: save to camera roll
+        saveToPhotos: true,
         cameraType: 'back',
       };
 
@@ -308,54 +560,6 @@ const ReportIncidentScreen = () => {
     }
   };
 
-  const handleChoosePhoto = () => {
-    const options: CameraOptions = {
-      mediaType: 'photo',
-      quality: 0.8,
-    };
-
-    launchImageLibrary(options, (response: ImagePickerResponse) => {
-      if (response.didCancel) {
-        console.log('User cancelled image picker');
-      } else if (response.errorCode) {
-        console.log('ImagePicker Error: ', response.errorMessage);
-      } else if (
-        response.assets &&
-        response.assets.length > 0 &&
-        response.assets[0].uri
-      ) {
-        setImage(response.assets[0].uri);
-      }
-    });
-  };
-
-  const handleMapPress = (e: MapPressEvent) => {
-    if (e.nativeEvent && e.nativeEvent.coordinate) {
-      const newLocation = {
-        latitude: e.nativeEvent.coordinate.latitude,
-        longitude: e.nativeEvent.coordinate.longitude,
-        address: 'Selected Location', // This would be replaced with reverse geocoding
-      };
-
-      console.log('Location selected on map:', newLocation);
-      setLocation(newLocation);
-
-      // Attempt to reverse geocode the selected location
-      Geocoder.from(newLocation.latitude, newLocation.longitude)
-        .then(json => {
-          const address =
-            json.results[0]?.formatted_address || 'Selected Location';
-          const updatedLocation = {
-            ...newLocation,
-            address,
-          };
-          console.log('Reverse geocoded address:', address);
-          setLocation(updatedLocation);
-        })
-        .catch(error => console.warn('Reverse geocoding error:', error));
-    }
-  };
-
   // Function to upload image to server
   const uploadImage = async (imageUri: string): Promise<string | null> => {
     if (!imageUri) {
@@ -365,13 +569,10 @@ const ReportIncidentScreen = () => {
     try {
       console.log('Starting image upload, URI:', imageUri);
       setUploadProgress(0);
-
-      // Use the service to upload the image, with a progress callback
       const imageUrl = await incidentService.uploadImage(imageUri, progress => {
         setUploadProgress(progress);
         console.log(`Upload progress: ${progress}%`);
       });
-
       console.log('Image upload successful, URL:', imageUrl);
       return imageUrl;
     } catch (error) {
@@ -399,14 +600,13 @@ const ReportIncidentScreen = () => {
 
     if (!location) {
       Alert.alert(
-        'Error',
-        'Location is required. Please wait for GPS or select a location on the map.',
+        'Location Required',
+        'Your exact location is required to report incidents. Please wait for GPS to acquire your location or try refreshing.',
       );
-      console.log('Submission failed: No location selected');
+      console.log('Submission failed: No location available');
       return;
     }
 
-    // Show confirmation modal
     setShowConfirmModal(true);
   };
 
@@ -414,24 +614,31 @@ const ReportIncidentScreen = () => {
   const handleConfirmedSubmit = async () => {
     setShowConfirmModal(false);
     setLoading(true);
+    let finalImageUrl: string | null =
+      'https://placeholder.com/no-image-available.jpg'; // Default to placeholder
 
     try {
-      // Upload image if exists
-      let imageUrl = null;
       if (image) {
-        // Show uploading status in UI
         Alert.alert(
           'Uploading Image',
           'Please wait while we upload your photo...',
           [{text: 'OK'}],
-          {cancelable: false},
+          {
+            cancelable: false,
+          },
         );
 
+        let uploadedUrl: string | null = null;
         try {
-          imageUrl = await uploadImage(image);
+          uploadedUrl = await uploadImage(image);
         } catch (uploadError) {
-          console.error('Image upload error:', uploadError);
-          const continueWithoutImage = await new Promise(resolve => {
+          console.error('Image upload error (thrown):', uploadError);
+          // uploadedUrl remains null if an error was thrown
+        }
+
+        if (!uploadedUrl) {
+          // If upload failed (either returned null or threw an error)
+          const continueWithoutImage = await new Promise<boolean>(resolve => {
             Alert.alert(
               'Warning',
               'Failed to upload image. Do you want to continue without the image?',
@@ -441,10 +648,7 @@ const ReportIncidentScreen = () => {
                   style: 'cancel',
                   onPress: () => resolve(false),
                 },
-                {
-                  text: 'Continue',
-                  onPress: () => resolve(true),
-                },
+                {text: 'Continue', onPress: () => resolve(true)},
               ],
               {cancelable: false},
             );
@@ -452,32 +656,27 @@ const ReportIncidentScreen = () => {
 
           if (!continueWithoutImage) {
             setLoading(false);
-            return;
+            return; // User chose to cancel submission
           }
-
-          // If continuing without image, use a placeholder URL that will pass validation
-          imageUrl = 'https://placeholder.com/no-image-available.jpg';
+          // If user chose to continue, finalImageUrl remains the placeholder
+        } else {
+          finalImageUrl = uploadedUrl; // Upload successful, use the actual URL
         }
-      } else {
-        // If no image was selected, use a placeholder URL that will pass validation
-        imageUrl = 'https://placeholder.com/no-image-available.jpg';
       }
 
       const ipAddress = await NetworkInfo.getIPAddress();
-
       const submissionData = {
         ipAddress,
-        reportedBy, // Optional name
-        contact, // Optional contact
+        reportedBy,
+        contact,
         type: incidentType,
-        snapshotUrl: imageUrl, // Use the URL returned from server or placeholder
+        snapshotUrl: finalImageUrl, // Use the determined finalImageUrl
         description,
         longitude: location!.longitude.toString(),
         latitude: location!.latitude.toString(),
       };
 
       console.log('DATA BEING SENT TO BACKEND:', submissionData);
-
       const result = await incidentService.submitCitizenReport(submissionData);
 
       if (result.success) {
@@ -512,7 +711,7 @@ const ReportIncidentScreen = () => {
     {id: 'Other', label: 'Other', icon: 'dots-horizontal'},
   ];
 
-  // Welcome Modal Component
+  // Improved Welcome Modal Component
   const WelcomeModal = () => (
     <Modal
       animationType="fade"
@@ -521,7 +720,6 @@ const ReportIncidentScreen = () => {
       onRequestClose={() => setShowWelcomeModal(false)}>
       <View style={styles.modalOverlay}>
         <View style={styles.modalContainer}>
-          {/* Header */}
           <View style={styles.modalHeader}>
             <View style={styles.modalIconContainer}>
               <MaterialCommunityIcons
@@ -530,17 +728,86 @@ const ReportIncidentScreen = () => {
                 color="#4CAF50"
               />
             </View>
-            <Text style={styles.modalTitle}>Welcome to SafetySense!</Text>
+            <Text style={styles.modalTitle}>Welcome to SafetySense</Text>
             <Text style={styles.modalSubtitle}>
-              Help keep your community safe by reporting incidents
+              Help keep your community safe
             </Text>
           </View>
 
-          {/* Content */}
           <ScrollView
             style={styles.modalContent}
             showsVerticalScrollIndicator={false}>
-            {/* Terms Agreement */}
+            {/* Quick Terms Summary */}
+            <View style={styles.termsCard}>
+              <View style={styles.termsHeader}>
+                <MaterialCommunityIcons
+                  name="file-document-outline"
+                  size={24}
+                  color="#2196F3"
+                />
+                <Text style={styles.termsTitle}>Quick Terms</Text>
+              </View>
+              <View style={styles.termsList}>
+                <View style={styles.termsItem}>
+                  <MaterialCommunityIcons
+                    name="check-circle"
+                    size={16}
+                    color="#4CAF50"
+                  />
+                  <Text style={styles.termsItemText}>
+                    Reports are anonymous by default
+                  </Text>
+                </View>
+                <View style={styles.termsItem}>
+                  <MaterialCommunityIcons
+                    name="map-marker"
+                    size={16}
+                    color="#4CAF50"
+                  />
+                  <Text style={styles.termsItemText}>
+                    Your location helps emergency responders
+                  </Text>
+                </View>
+                <View style={styles.termsItem}>
+                  <MaterialCommunityIcons
+                    name="shield-check"
+                    size={16}
+                    color="#4CAF50"
+                  />
+                  <Text style={styles.termsItemText}>
+                    Only submit real emergencies
+                  </Text>
+                </View>
+                <View style={styles.termsItem}>
+                  <MaterialCommunityIcons
+                    name="security"
+                    size={16}
+                    color="#4CAF50"
+                  />
+                  <Text style={styles.termsItemText}>
+                    Your data is protected and secure
+                  </Text>
+                </View>
+              </View>
+            </View>
+
+            {/* Important Notice */}
+            <View style={styles.noticeCard}>
+              <View style={styles.noticeHeader}>
+                <MaterialCommunityIcons
+                  name="alert-circle"
+                  size={20}
+                  color="#FF9800"
+                />
+                <Text style={styles.noticeTitle}>Important</Text>
+              </View>
+              <Text style={styles.noticeText}>
+                False reports may have legal consequences. Only report real
+                emergencies.
+              </Text>
+            </View>
+
+            {/* Agreement */}
             <View style={styles.agreementSection}>
               <Text style={styles.agreementText}>
                 By continuing, you agree to our{' '}
@@ -548,78 +815,13 @@ const ReportIncidentScreen = () => {
                 <Text style={styles.linkText}>Privacy Policy</Text>.
               </Text>
             </View>
-
-            {/* Privacy Section */}
-            <View style={styles.privacyCard}>
-              <View style={styles.privacyHeader}>
-                <MaterialCommunityIcons
-                  name="lock-outline"
-                  size={24}
-                  color="#2196F3"
-                />
-                <Text style={styles.privacyTitle}>We respect your privacy</Text>
-              </View>
-
-              <View style={styles.privacyList}>
-                <View style={styles.privacyItem}>
-                  <MaterialCommunityIcons
-                    name="account-off-outline"
-                    size={20}
-                    color="#8BABC7"
-                  />
-                  <Text style={styles.privacyItemText}>
-                    Your reports are anonymous by default
-                  </Text>
-                </View>
-
-                <View style={styles.privacyItem}>
-                  <MaterialCommunityIcons
-                    name="map-marker-outline"
-                    size={20}
-                    color="#8BABC7"
-                  />
-                  <Text style={styles.privacyItemText}>
-                    Your location is only used to identify where the incident
-                    occurred
-                  </Text>
-                </View>
-
-                <View style={styles.privacyItem}>
-                  <MaterialCommunityIcons
-                    name="security"
-                    size={20}
-                    color="#8BABC7"
-                  />
-                  <Text style={styles.privacyItemText}>
-                    IP addresses are logged to prevent spam or abuse
-                  </Text>
-                </View>
-              </View>
-            </View>
-
-            {/* Warning Section */}
-            <View style={styles.warningCard}>
-              <View style={styles.warningHeader}>
-                <MaterialCommunityIcons
-                  name="alert-circle-outline"
-                  size={24}
-                  color="#FF9800"
-                />
-                <Text style={styles.warningTitle}>Important Notice</Text>
-              </View>
-              <Text style={styles.warningText}>
-                Reports may be shared with authorized responders (e.g., MDRRMO)
-                to assist in emergencies.
-              </Text>
-            </View>
           </ScrollView>
 
-          {/* Action Button */}
           <TouchableOpacity
             style={styles.primaryButton}
             onPress={() => setShowWelcomeModal(false)}
             activeOpacity={0.8}>
-            <Text style={styles.primaryButtonText}>I Understand, Continue</Text>
+            <Text style={styles.primaryButtonText}>I Understand</Text>
             <MaterialCommunityIcons
               name="arrow-right"
               size={20}
@@ -640,7 +842,6 @@ const ReportIncidentScreen = () => {
       onRequestClose={() => setShowConfirmModal(false)}>
       <View style={styles.modalOverlay}>
         <View style={styles.modalContainer}>
-          {/* Header */}
           <View style={styles.modalHeader}>
             <View
               style={[styles.modalIconContainer, styles.warningIconContainer]}>
@@ -652,48 +853,28 @@ const ReportIncidentScreen = () => {
             </View>
             <Text style={styles.modalTitle}>Confirm Your Report</Text>
             <Text style={styles.modalSubtitle}>
-              Please review the information below before submitting
+              Please review before submitting
             </Text>
           </View>
 
-          {/* Content */}
           <ScrollView
             style={styles.modalContent}
             showsVerticalScrollIndicator={false}>
-            {/* Terms Reminder */}
             <View style={styles.confirmationCard}>
               <View style={styles.confirmationHeader}>
                 <MaterialCommunityIcons
-                  name="file-document-outline"
-                  size={24}
-                  color="#2196F3"
-                />
-                <Text style={styles.confirmationTitle}>Terms & Privacy</Text>
-              </View>
-              <Text style={styles.confirmationText}>
-                By submitting this report, you agree to our{' '}
-                <Text style={styles.linkText}>Terms of Service</Text> and{' '}
-                <Text style={styles.linkText}>Privacy Policy</Text>.
-              </Text>
-            </View>
-
-            {/* Location Sharing */}
-            <View style={styles.confirmationCard}>
-              <View style={styles.confirmationHeader}>
-                <MaterialCommunityIcons
-                  name="map-marker-radius"
+                  name="crosshairs-gps"
                   size={24}
                   color="#4CAF50"
                 />
                 <Text style={styles.confirmationTitle}>Location Sharing</Text>
               </View>
               <Text style={styles.confirmationText}>
-                Your location will be shared with authorized responders to help
-                with emergency response.
+                Your exact location will be shared with emergency responders:{' '}
+                {location?.address}
               </Text>
             </View>
 
-            {/* Warning */}
             <View style={styles.finalWarningCard}>
               <View style={styles.finalWarningHeader}>
                 <MaterialCommunityIcons
@@ -701,16 +882,15 @@ const ReportIncidentScreen = () => {
                   size={24}
                   color="#FF5722"
                 />
-                <Text style={styles.finalWarningTitle}>Important Reminder</Text>
+                <Text style={styles.finalWarningTitle}>Final Reminder</Text>
               </View>
               <Text style={styles.finalWarningText}>
-                Please do not submit false or misleading information. False
-                reports may result in legal consequences.
+                Only submit real emergencies. False reports may result in legal
+                consequences.
               </Text>
             </View>
           </ScrollView>
 
-          {/* Action Buttons */}
           <View style={styles.modalButtonContainer}>
             <TouchableOpacity
               style={styles.secondaryButton}
@@ -718,7 +898,6 @@ const ReportIncidentScreen = () => {
               activeOpacity={0.8}>
               <Text style={styles.secondaryButtonText}>Cancel</Text>
             </TouchableOpacity>
-
             <TouchableOpacity
               style={styles.dangerButton}
               onPress={handleConfirmedSubmit}
@@ -746,11 +925,7 @@ const ReportIncidentScreen = () => {
   return (
     <SafeAreaView style={styles.safeArea} edges={['top']}>
       <StatusBar barStyle="light-content" backgroundColor="#0A1929" />
-
-      {/* Welcome Modal */}
       <WelcomeModal />
-
-      {/* Confirmation Modal */}
       <ConfirmationModal />
 
       <ScrollView
@@ -769,7 +944,7 @@ const ReportIncidentScreen = () => {
           <Text style={styles.headerTitle}>Report Incident</Text>
         </View>
 
-        {/* Personal Information Section - ADDED */}
+        {/* Personal Information Section */}
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>
             <MaterialCommunityIcons
@@ -872,8 +1047,6 @@ const ReportIncidentScreen = () => {
               </View>
             )}
           </View>
-
-          {/* Upload Progress Indicator */}
           {uploadProgress > 0 && uploadProgress < 100 && (
             <View style={styles.progressContainer}>
               <Text style={styles.progressText}>
@@ -886,19 +1059,12 @@ const ReportIncidentScreen = () => {
               </View>
             </View>
           )}
-
           <View style={styles.photoButtonsContainer}>
             <TouchableOpacity
-              style={styles.photoButton}
+              style={[styles.photoButton, styles.fullWidthButton]}
               onPress={handleTakePhoto}>
               <MaterialCommunityIcons name="camera" size={20} color="#FFFFFF" />
               <Text style={styles.photoButtonText}>Take Photo</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={[styles.photoButton, styles.uploadButton]}
-              onPress={handleChoosePhoto}>
-              <MaterialCommunityIcons name="image" size={20} color="#FFFFFF" />
-              <Text style={styles.photoButtonText}>Upload Photo</Text>
             </TouchableOpacity>
           </View>
         </View>
@@ -928,18 +1094,21 @@ const ReportIncidentScreen = () => {
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>
             <MaterialCommunityIcons
-              name="map-marker-outline"
+              name="crosshairs-gps"
               size={20}
               color="#FFFFFF"
             />
-            <Text> Location</Text>
+            <Text> Your Exact Location</Text>
           </Text>
           <View style={styles.mapContainer}>
             <MapView
               provider={PROVIDER_GOOGLE}
               style={styles.map}
               region={mapRegion}
-              onPress={handleMapPress}
+              scrollEnabled={false}
+              zoomEnabled={false}
+              rotateEnabled={false}
+              pitchEnabled={false}
               customMapStyle={darkMapStyle}>
               {location && (
                 <Marker
@@ -947,10 +1116,10 @@ const ReportIncidentScreen = () => {
                     latitude: location.latitude,
                     longitude: location.longitude,
                   }}
-                  title="Incident Location">
+                  title="Your Exact Location">
                   <View style={styles.customMarker}>
                     <MaterialCommunityIcons
-                      name="map-marker"
+                      name="crosshairs-gps"
                       size={36}
                       color="#E53935"
                     />
@@ -962,7 +1131,7 @@ const ReportIncidentScreen = () => {
               style={styles.recenterButton}
               onPress={() => {
                 if (isLocationPermissionGranted) {
-                  getLocation();
+                  getCurrentLocation();
                 } else {
                   requestLocationPermission();
                 }
@@ -971,7 +1140,7 @@ const ReportIncidentScreen = () => {
                 <ActivityIndicator color="#FFFFFF" size="small" />
               ) : (
                 <MaterialCommunityIcons
-                  name="crosshairs-gps"
+                  name="refresh"
                   size={24}
                   color="#FFFFFF"
                 />
@@ -980,31 +1149,59 @@ const ReportIncidentScreen = () => {
           </View>
           <View style={styles.locationTextContainer}>
             <MaterialCommunityIcons
-              name="map-marker"
+              name="crosshairs-gps"
               size={16}
-              color="#8D9CB8"
+              color={locationError ? '#FF5722' : '#4CAF50'}
             />
-            <Text style={styles.locationText}>
+            <Text
+              style={[
+                styles.locationText,
+                locationError && styles.locationErrorText,
+                !locationError && location && styles.locationSuccessText,
+              ]}>
               {isLocationLoading
-                ? 'Getting your location...'
+                ? 'Getting your exact location...'
+                : locationError
+                ? locationError
                 : location
                 ? location.address
-                : 'Fetching location...'}
+                : 'Location required'}
             </Text>
           </View>
+          {(locationError || !location) && (
+            <TouchableOpacity
+              style={styles.retryLocationButton}
+              onPress={getCurrentLocation}>
+              <MaterialCommunityIcons
+                name="refresh"
+                size={16}
+                color="#FFFFFF"
+              />
+              <Text style={styles.retryLocationText}>
+                {!isLocationPermissionGranted
+                  ? 'Enable Location'
+                  : 'Retry Location'}
+              </Text>
+            </TouchableOpacity>
+          )}
         </View>
 
         {/* Submit Button */}
         <TouchableOpacity
-          style={styles.submitButton}
+          style={[
+            styles.submitButton,
+            (!location || isLocationLoading) && styles.submitButtonDisabled,
+          ]}
           onPress={handleSubmitPress}
-          disabled={loading}>
+          disabled={loading || isLocationLoading || !location}>
           {loading ? (
             <ActivityIndicator color="#FFFFFF" size="small" />
           ) : (
             <>
               <MaterialCommunityIcons name="send" size={20} color="#FFFFFF" />
-              <Text style={styles.submitButtonText}>Submit Report</Text>
+              <Text style={styles.submitButtonText}>
+                {!location ? 'Waiting for Location...' : 'Submit Report'}
+              </Text>
             </>
           )}
         </TouchableOpacity>
@@ -1375,7 +1572,7 @@ const styles = StyleSheet.create({
   },
   recenterButton: {
     position: 'absolute',
-    bottom: 16,
+    top: 16,
     right: 16,
     backgroundColor: 'rgba(19, 47, 76, 0.8)',
     width: 48,
@@ -1402,6 +1599,28 @@ const styles = StyleSheet.create({
     marginLeft: 8,
     flex: 1,
   },
+  locationErrorText: {
+    color: '#FF8A65',
+  },
+  locationSuccessText: {
+    color: '#81C784',
+  },
+  retryLocationButton: {
+    backgroundColor: '#FF5722',
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderRadius: 8,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: 8,
+  },
+  retryLocationText: {
+    color: '#FFFFFF',
+    fontSize: 14,
+    fontWeight: '600',
+    marginLeft: 4,
+  },
   submitButton: {
     backgroundColor: '#1E88E5',
     paddingVertical: 16,
@@ -1416,6 +1635,10 @@ const styles = StyleSheet.create({
     shadowRadius: 6,
     elevation: 8,
   },
+  submitButtonDisabled: {
+    backgroundColor: '#455A64',
+    opacity: 0.6,
+  },
   submitButtonText: {
     color: '#FFFFFF',
     fontSize: 18,
@@ -1426,7 +1649,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  // New styles for upload progress
   progressContainer: {
     marginTop: 8,
     marginBottom: 16,
@@ -1449,8 +1671,6 @@ const styles = StyleSheet.create({
     height: '100%',
     backgroundColor: '#1E88E5',
   },
-
-  // Enhanced Modal Styles
   modalOverlay: {
     flex: 1,
     backgroundColor: 'rgba(0, 0, 0, 0.85)',
@@ -1463,7 +1683,7 @@ const styles = StyleSheet.create({
     borderRadius: 20,
     width: '100%',
     maxWidth: 420,
-    maxHeight: '85%',
+    maxHeight: '80%',
     shadowColor: '#000',
     shadowOffset: {width: 0, height: 10},
     shadowOpacity: 0.3,
@@ -1505,87 +1725,80 @@ const styles = StyleSheet.create({
   },
   modalContent: {
     paddingHorizontal: 24,
-    maxHeight: 400,
+    maxHeight: 300,
   },
-
-  // Agreement Section
+  // New improved terms styles
+  termsCard: {
+    backgroundColor: '#0D2137',
+    borderRadius: 16,
+    padding: 20,
+    marginBottom: 16,
+    borderWidth: 1,
+    borderColor: '#1E4976',
+  },
+  termsHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  termsTitle: {
+    fontSize: 18,
+    fontWeight: '600',
+    color: '#FFFFFF',
+    marginLeft: 12,
+  },
+  termsList: {
+    gap: 12,
+  },
+  termsItem: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 10,
+  },
+  termsItemText: {
+    fontSize: 14,
+    color: '#B8C7D9',
+    lineHeight: 20,
+    flex: 1,
+  },
+  noticeCard: {
+    backgroundColor: 'rgba(255, 152, 0, 0.1)',
+    borderRadius: 12,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 152, 0, 0.3)',
+    marginBottom: 16,
+  },
+  noticeHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  noticeTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#FF9800',
+    marginLeft: 8,
+  },
+  noticeText: {
+    fontSize: 14,
+    color: '#FFB74D',
+    lineHeight: 20,
+  },
   agreementSection: {
-    marginBottom: 24,
+    marginBottom: 20,
   },
   agreementText: {
-    fontSize: 16,
+    fontSize: 14,
     color: '#B8C7D9',
     textAlign: 'center',
-    lineHeight: 24,
+    lineHeight: 20,
   },
   linkText: {
     color: '#2196F3',
     fontWeight: '600',
     textDecorationLine: 'underline',
   },
-
-  // Privacy Card
-  privacyCard: {
-    backgroundColor: '#0D2137',
-    borderRadius: 16,
-    padding: 20,
-    marginBottom: 20,
-    borderWidth: 1,
-    borderColor: '#1E4976',
-  },
-  privacyHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 16,
-  },
-  privacyTitle: {
-    fontSize: 18,
-    fontWeight: '600',
-    color: '#FFFFFF',
-    marginLeft: 12,
-  },
-  privacyList: {
-    gap: 12,
-  },
-  privacyItem: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    gap: 12,
-  },
-  privacyItemText: {
-    fontSize: 15,
-    color: '#B8C7D9',
-    lineHeight: 22,
-    flex: 1,
-  },
-
-  // Warning Card
-  warningCard: {
-    backgroundColor: 'rgba(255, 152, 0, 0.1)',
-    borderRadius: 16,
-    padding: 20,
-    borderWidth: 1,
-    borderColor: 'rgba(255, 152, 0, 0.3)',
-    marginBottom: 20,
-  },
-  warningHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 12,
-  },
-  warningTitle: {
-    fontSize: 18,
-    fontWeight: '600',
-    color: '#FF9800',
-    marginLeft: 12,
-  },
-  warningText: {
-    fontSize: 15,
-    color: '#FFB74D',
-    lineHeight: 22,
-  },
-
-  // Confirmation Cards
   confirmationCard: {
     backgroundColor: '#0D2137',
     borderRadius: 16,
@@ -1610,8 +1823,6 @@ const styles = StyleSheet.create({
     color: '#B8C7D9',
     lineHeight: 22,
   },
-
-  // Final Warning Card
   finalWarningCard: {
     backgroundColor: 'rgba(255, 87, 34, 0.1)',
     borderRadius: 16,
@@ -1637,8 +1848,6 @@ const styles = StyleSheet.create({
     lineHeight: 22,
     fontWeight: '500',
   },
-
-  // Button Styles
   primaryButton: {
     backgroundColor: '#2196F3',
     paddingVertical: 16,
@@ -1699,6 +1908,9 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: 'bold',
     marginLeft: 8,
+  },
+  fullWidthButton: {
+    flex: 1,
   },
 });
 
