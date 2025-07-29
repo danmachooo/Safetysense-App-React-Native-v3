@@ -21,6 +21,19 @@ export interface IncidentSubmission {
 
 export type UploadProgressCallback = (progress: number) => void;
 
+// Define types for heatmap data response
+export interface HeatmapPoint {
+  latitude: number;
+  longitude: number;
+  weight: number;
+}
+
+export interface HeatmapResponse {
+  success: boolean;
+  data: HeatmapPoint[];
+  message?: string;
+}
+
 const incidentService = {
   /**
    * Submit a citizen incident report
@@ -51,14 +64,10 @@ const incidentService = {
       throw new Error('No image URI provided');
     }
 
-    // Create form data
     const formData = new FormData();
-
-    // Get file name from URI
     const uriParts = imageUri.split('/');
     const fileName = uriParts[uriParts.length - 1];
 
-    // Determine file type (default to jpeg if unknown)
     let fileType = 'image/jpeg';
     if (fileName.toLowerCase().endsWith('.png')) {
       fileType = 'image/png';
@@ -67,7 +76,6 @@ const incidentService = {
       fileType = 'image/gif';
     }
 
-    // Append image to form data
     formData.append('image', {
       uri:
         Platform.OS === 'android' ? imageUri : imageUri.replace('file://', ''),
@@ -78,7 +86,6 @@ const incidentService = {
     return new Promise((resolve, reject) => {
       const xhr = new XMLHttpRequest();
 
-      // Set up progress tracking if callback provided
       if (onProgress) {
         xhr.upload.onprogress = event => {
           if (event.lengthComputable) {
@@ -94,11 +101,9 @@ const incidentService = {
         if (xhr.status >= 200 && xhr.status < 300) {
           try {
             const response = JSON.parse(xhr.responseText);
-            console.log(response);
-
             if (response.success && response.data && response.data.imagePath) {
               console.log('TEST IMAGE UPLOAD: ', response.data.imagePath);
-              resolve(response.data.imagePath); // ✅ only keep path like 'uploads/incidents/filename.jpg'
+              resolve(response.data.imagePath);
             } else {
               reject(new Error('Invalid response format from server'));
             }
@@ -130,6 +135,25 @@ const incidentService = {
       return response.data;
     } catch (error) {
       console.error('Error fetching incidents:', error);
+      throw error;
+    }
+  },
+
+  /**
+   * Get heatmap data for incidents
+   * @param filters Optional query parameters for filtering heatmap data
+   * @returns The heatmap data points
+   */
+  getHeatmapData: async (
+    filters: Record<string, any> = {},
+  ): Promise<HeatmapResponse> => {
+    try {
+      console.log('🔥 Fetching heatmap data from API...');
+      const response = await api.get('/incidents/heatmap', {params: filters});
+      console.log('✅ Heatmap data fetched successfully');
+      return response.data;
+    } catch (error: any) {
+      console.error('❌ Error fetching heatmap data:', error.message);
       throw error;
     }
   },

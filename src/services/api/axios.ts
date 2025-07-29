@@ -67,7 +67,7 @@ instance.interceptors.request.use(
   },
   error => Promise.reject(error),
 );
-
+console.log('Backend URL: ', BASE_URL);
 // Response interceptor - handle authentication errors and token refresh
 instance.interceptors.response.use(
   response => response,

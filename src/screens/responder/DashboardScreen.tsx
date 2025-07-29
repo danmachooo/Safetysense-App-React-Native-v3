@@ -1,3 +1,5 @@
+/* eslint-disable react-native/no-inline-styles */
+/* eslint-disable no-catch-shadow */
 /* eslint-disable @typescript-eslint/no-shadow */
 /* eslint-disable curly */
 /* eslint-disable react-hooks/exhaustive-deps */
@@ -16,18 +18,29 @@ import {
   Dimensions,
   RefreshControl,
   StatusBar,
+  Alert,
+  Platform,
+  PermissionsAndroid,
+  Linking,
+  ScrollView,
+  Animated,
 } from 'react-native';
 import {useNavigation, useFocusEffect} from '@react-navigation/native';
 import type {StackNavigationProp} from '@react-navigation/stack';
 import {SafeAreaView} from 'react-native-safe-area-context';
 import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
 import MapView, {Marker, PROVIDER_GOOGLE, Callout} from 'react-native-maps';
+import MapViewDirections from 'react-native-maps-directions';
+import Geolocation from '@react-native-community/geolocation';
 import Geocoding from 'react-native-geocoding';
 import type {ResponderStackParamList} from '../../navigation/ResponderNavigator';
 import type {JSX} from 'react/jsx-runtime';
 import incidentService from '../../services/api/incidentService';
-import {GOOGLE_API_KEY, BASE_URL} from '@env';
+import {GOOGLE_API_KEY} from '@env';
 import {useAppSelector} from '../../store/hooks';
+
+// Initialize Geocoding
+Geocoding.init(GOOGLE_API_KEY);
 
 // Define navigation prop type
 type DashboardScreenNavigationProp = StackNavigationProp<
@@ -48,6 +61,14 @@ const SOCORRO_COORDINATES = {
   latitude: 13.0584,
   longitude: 121.4066,
 };
+
+// Enhanced user location interface
+interface UserLocation {
+  latitude: number;
+  longitude: number;
+  accuracy?: number;
+  address?: string;
+}
 
 // Define incident types with icons and colors
 const INCIDENT_TYPES = {
@@ -349,12 +370,628 @@ const DashboardScreen = () => {
   const [dismissedIncidentIds, setDismissedIncidentIds] = useState<number[]>(
     [],
   );
+
+  // Heatmap states
+  const [showHeatmap, setShowHeatmap] = useState<boolean>(false);
+  const [heatmapData, setHeatmapData] = useState<
+    Array<[number, number, number]>
+  >([]);
+  const [heatmapLoading, setHeatmapLoading] = useState<boolean>(false);
+  const [heatmapFilter, setHeatmapFilter] = useState<string>('last7days');
+  const [heatmapType, setHeatmapType] = useState<string>('');
+  const [showHeatmapControls, setShowHeatmapControls] =
+    useState<boolean>(false);
+
+  // Enhanced location states
+  const [userLocation, setUserLocation] = useState<UserLocation | null>(null);
+  const [isLocationPermissionGranted, setIsLocationPermissionGranted] =
+    useState<boolean>(false);
+  const [isLocationLoading, setIsLocationLoading] = useState<boolean>(false);
+  const [locationError, setLocationError] = useState<string | null>(null);
+  const [selectedIncidentForRoute, setSelectedIncidentForRoute] =
+    useState<Incident | null>(null);
+  const [showRoutes, setShowRoutes] = useState<boolean>(false);
+
   const mapRef = useRef<MapView | null>(null);
   const isRefreshingRef = useRef<boolean>(false);
+  const locationWatchId = useRef<number | null>(null);
+
   const {user} = useAppSelector(state => state.auth);
 
   // Address cache to minimize API calls
   const addressCache = useRef<AddressCache>({});
+
+  // Enhanced address formatting function from ReportIncidentScreen
+  const formatHumanReadableAddress = (result: any): string => {
+    const addressComponents = result.address_components;
+    const formattedAddress = result.formatted_address;
+
+    // Helper function to find component by type
+    const findComponent = (types: string[]) => {
+      return addressComponents.find((comp: any) =>
+        types.some((type: string) => comp.types.includes(type)),
+      );
+    };
+
+    // Extract specific components with enhanced detection
+    const streetNumber = findComponent(['street_number'])?.long_name || '';
+    const route = findComponent(['route'])?.long_name || '';
+
+    // Enhanced barangay detection
+    let barangay =
+      findComponent([
+        'sublocality_level_1',
+        'sublocality_level_2',
+        'sublocality',
+        'neighborhood',
+        'political',
+      ])?.long_name || '';
+
+    // Enhanced city detection
+    let city =
+      findComponent([
+        'locality',
+        'administrative_area_level_2',
+        'administrative_area_level_3',
+        'sublocality_level_1',
+      ])?.long_name || '';
+
+    const municipality =
+      findComponent(['administrative_area_level_2'])?.long_name || '';
+    const province =
+      findComponent(['administrative_area_level_1'])?.long_name || '';
+
+    // Clean and validate components
+    const cleanComponent = (component: string) => {
+      if (!component) {
+        return '';
+      }
+      return component
+        .replace(/\b(City|Municipality|Poblacion|Proper)\b/gi, '')
+        .replace(/\s+/g, ' ')
+        .trim();
+    };
+
+    // Fix common misclassifications
+    if (barangay && barangay.toLowerCase().includes('city')) {
+      if (!city || city === barangay) {
+        city = barangay;
+        barangay = '';
+      }
+    }
+
+    // Use municipality as city if city is not available
+    if (!city && municipality) {
+      city = municipality;
+    }
+
+    // Remove duplicates
+    if (barangay && city && barangay.toLowerCase() === city.toLowerCase()) {
+      barangay = '';
+    }
+
+    // Build address parts
+    const addressParts = [];
+
+    // Add street address
+    if (streetNumber && route) {
+      const cleanRoute = cleanComponent(route);
+      if (cleanRoute && !cleanRoute.toLowerCase().includes('unnamed')) {
+        addressParts.push(`${streetNumber} ${cleanRoute}`);
+      }
+    } else if (route) {
+      const cleanRoute = cleanComponent(route);
+      if (cleanRoute && !cleanRoute.toLowerCase().includes('unnamed')) {
+        addressParts.push(cleanRoute);
+      }
+    }
+
+    // Add barangay with proper formatting
+    if (barangay) {
+      const cleanBarangay = cleanComponent(barangay);
+      if (
+        cleanBarangay &&
+        cleanBarangay.toLowerCase() !== city?.toLowerCase() &&
+        !cleanBarangay.toLowerCase().includes('city') &&
+        cleanBarangay.length > 2
+      ) {
+        // Add proper prefix
+        const barangayFormatted =
+          cleanBarangay.toLowerCase().startsWith('barangay') ||
+          cleanBarangay.toLowerCase().startsWith('brgy')
+            ? cleanBarangay
+            : `Brgy. ${cleanBarangay}`;
+        addressParts.push(barangayFormatted);
+      }
+    }
+
+    // Add city/municipality
+    if (city) {
+      const cleanCity = cleanComponent(city);
+      if (cleanCity) {
+        // Add "City" suffix if it's a city but doesn't have it
+        const cityFormatted = cleanCity.toLowerCase().includes('city')
+          ? cleanCity
+          : `${cleanCity} City`;
+        addressParts.push(cityFormatted);
+      }
+    }
+
+    // Add province if different and meaningful
+    if (province && province.toLowerCase() !== city?.toLowerCase()) {
+      const cleanProvince = cleanComponent(province);
+      if (
+        cleanProvince &&
+        cleanProvince.toLowerCase() !== city?.toLowerCase()
+      ) {
+        addressParts.push(cleanProvince);
+      }
+    }
+
+    // Build final address
+    let humanReadableAddress = '';
+    if (addressParts.length > 0) {
+      humanReadableAddress = addressParts.join(', ');
+    } else {
+      // Enhanced fallback cleaning
+      humanReadableAddress = formattedAddress
+        .replace(/^\d+\+\w+\s*/, '') // Remove plus codes
+        .replace(/,\s*Philippines$/i, '') // Remove Philippines suffix
+        .replace(/,\s*Unnamed Road/gi, '') // Remove unnamed roads
+        .replace(/,\s*Poblacion/gi, '') // Remove generic Poblacion
+        .replace(/\b(Municipality)\b/gi, '') // Remove Municipality word
+        .replace(/,\s*,/g, ',') // Fix double commas
+        .replace(/^\s*,\s*/, '') // Remove leading comma
+        .replace(/\s*,\s*$/, '') // Remove trailing comma
+        .replace(/\s+/g, ' ') // Normalize spaces
+        .trim();
+    }
+
+    // Final validation and formatting
+    if (!humanReadableAddress || humanReadableAddress.length < 5) {
+      // Last resort: use available meaningful parts
+      const fallbackParts = [city, province].filter(
+        part => part && part.trim() && !part.toLowerCase().includes('unnamed'),
+      );
+      humanReadableAddress =
+        fallbackParts.length > 0
+          ? fallbackParts.join(', ')
+          : 'Current Location';
+    }
+
+    // Proper case formatting
+    humanReadableAddress = humanReadableAddress
+      .split(' ')
+      .map(word => {
+        // Handle special cases
+        if (
+          word.toLowerCase() === 'brgy.' ||
+          word.toLowerCase() === 'st.' ||
+          word.toLowerCase() === 'ave.'
+        ) {
+          return word.charAt(0).toUpperCase() + word.slice(1).toLowerCase();
+        }
+        return word.charAt(0).toUpperCase() + word.slice(1).toLowerCase();
+      })
+      .join(' ');
+
+    return humanReadableAddress;
+  };
+
+  const fetchHeatmapData = useCallback(async () => {
+    try {
+      setHeatmapLoading(true);
+      setError(null); // Clear previous errors
+      console.log('🔥 Fetching heatmap data...');
+
+      // Construct filters object
+      const filters: Record<string, string> = {};
+      if (heatmapFilter) filters.filter = heatmapFilter;
+      if (heatmapType) filters.type = heatmapType;
+
+      const response = await incidentService.getHeatmapData(filters);
+
+      if (response.success) {
+        console.log(
+          `✅ Successfully fetched heatmap data: ${response.data.length} points`,
+        );
+        setHeatmapData(response.data as any);
+      } else {
+        console.error('❌ Heatmap API Error:', response.message);
+        setError(
+          `Failed to fetch heatmap data: ${
+            response.message || 'Unknown error'
+          }`,
+        );
+        Alert.alert(
+          'Error',
+          `Failed to fetch heatmap data: ${
+            response.message || 'Unknown error'
+          }`,
+        );
+      }
+    } catch (err: any) {
+      console.error('❌ Error fetching heatmap data:', err);
+      const errorMessage =
+        err.message || 'Failed to fetch heatmap data. Please try again.';
+      setError(errorMessage);
+      Alert.alert('Error', errorMessage);
+    } finally {
+      setHeatmapLoading(false);
+    }
+  }, [heatmapFilter, heatmapType]);
+
+  useEffect(() => {
+    if (showHeatmap) {
+      fetchHeatmapData();
+    }
+  }, [heatmapFilter, heatmapType]);
+
+  // Enhanced location permission request
+  const requestLocationPermission = async (): Promise<boolean> => {
+    if (Platform.OS === 'ios') {
+      try {
+        await Geolocation.requestAuthorization();
+        setIsLocationPermissionGranted(true);
+        setLocationError(null);
+        console.log('Location Permission Granted!');
+        return true;
+      } catch (error) {
+        console.warn('iOS location permission error:', error);
+        setIsLocationPermissionGranted(false);
+        setLocationError('Location permission denied');
+        return false;
+      }
+    }
+
+    try {
+      const granted = await PermissionsAndroid.request(
+        PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION,
+        {
+          title: 'Location Permission Required',
+          message:
+            'This app requires precise location access to show your position on the map and provide accurate directions to incidents.',
+          buttonNeutral: 'Ask Me Later',
+          buttonNegative: 'Cancel',
+          buttonPositive: 'OK',
+        },
+      );
+
+      const isGranted = granted === PermissionsAndroid.RESULTS.GRANTED;
+      setIsLocationPermissionGranted(isGranted);
+      if (isGranted) {
+        console.log('Location Permission Granted!');
+        setLocationError(null);
+        return true;
+      } else {
+        console.log('Location Permission Denied');
+        setLocationError(
+          'Location permission is required for accurate positioning',
+        );
+        Alert.alert(
+          'Location Permission Required',
+          'This app cannot show your position without location access. Please enable location permissions in settings.',
+          [
+            {text: 'Cancel', style: 'cancel'},
+            {text: 'Open Settings', onPress: () => Linking.openSettings()},
+          ],
+        );
+        return false;
+      }
+    } catch (err) {
+      console.warn('Location permission error:', err);
+      setIsLocationPermissionGranted(false);
+      setLocationError('Failed to request location permission');
+      return false;
+    }
+  };
+  // Enhanced location success handler
+  const handleLocationSuccess = async (position: any) => {
+    const {latitude, longitude, accuracy} = position.coords;
+    console.log('Enhanced location retrieved:', {
+      latitude,
+      longitude,
+      accuracy,
+    });
+
+    // Provide feedback based on accuracy
+    if (accuracy > 100) {
+      console.warn('Location accuracy is very low:', accuracy, 'meters');
+      setLocationError(
+        `Location accuracy: ${Math.round(
+          accuracy,
+        )}m - Very low accuracy. Consider moving to an open area for better precision.`,
+      );
+    } else if (accuracy > 50) {
+      console.warn('Location accuracy is moderate:', accuracy, 'meters');
+      setLocationError(
+        `Location accuracy: ${Math.round(
+          accuracy,
+        )}m - Moderate accuracy. Moving to an open area may improve precision.`,
+      );
+    } else {
+      console.log('Good location accuracy:', accuracy, 'meters');
+      setLocationError(null);
+    }
+
+    try {
+      // Reverse geocode coordinates with enhanced formatting
+      const json = await Geocoding.from(latitude, longitude);
+      let humanReadableAddress = 'Current Location';
+
+      if (json.results && json.results.length > 0) {
+        const result = json.results[0];
+        humanReadableAddress = formatHumanReadableAddress(result);
+        console.log('Enhanced address formatting result:', {
+          original: result.formatted_address,
+          humanReadable: humanReadableAddress,
+          components: result.address_components,
+        });
+      }
+
+      const locationData: UserLocation = {
+        latitude,
+        longitude,
+        accuracy,
+        address: humanReadableAddress,
+      };
+
+      console.log('Enhanced location set successfully:', locationData);
+      setUserLocation(locationData);
+
+      // Cache the address for future use
+      const cacheKey = `${latitude},${longitude}`;
+      addressCache.current[cacheKey] = humanReadableAddress;
+    } catch (error) {
+      console.log('Enhanced geocoding error: ', error);
+      // Still set the location even if geocoding fails
+      const locationData: UserLocation = {
+        latitude,
+        longitude,
+        accuracy,
+        address: `Lat: ${latitude.toFixed(6)}, Lng: ${longitude.toFixed(6)}`, // Show coordinates as fallback
+      };
+      setUserLocation(locationData);
+    } finally {
+      setIsLocationLoading(false);
+    }
+  };
+
+  // Enhanced location error handler
+  const handleLocationError = (error: any) => {
+    console.log('Enhanced location retrieval error:', error);
+    setIsLocationLoading(false);
+
+    let errorMessage = 'Failed to get current location';
+    let actionMessage = '';
+
+    switch (error.code) {
+      case 1: // PERMISSION_DENIED
+        errorMessage = 'Location permission denied';
+        actionMessage =
+          'Please enable location permissions in settings to continue.';
+        break;
+      case 2: // POSITION_UNAVAILABLE
+        errorMessage = 'Location unavailable';
+        actionMessage =
+          'Please check your GPS settings and ensure you have a clear view of the sky.';
+        break;
+      case 3: // TIMEOUT
+        errorMessage = 'Location request timed out';
+        actionMessage =
+          'Please try again or move to an area with better GPS reception.';
+        break;
+      case 4: // ACTIVITY_NULL (Android specific)
+        errorMessage = 'GPS service unavailable';
+        actionMessage =
+          'Please enable GPS/Location services in your device settings.';
+        break;
+      default:
+        errorMessage = 'Unknown location error';
+        actionMessage = 'Please try again or restart the app.';
+    }
+
+    setLocationError(`${errorMessage} - ${actionMessage}`);
+
+    Alert.alert(
+      'Location Required',
+      `${errorMessage}. ${actionMessage}\n\nThis app requires your location to show your position and provide directions.`,
+      [
+        {text: 'Try Again', onPress: getCurrentLocation},
+        {
+          text: 'Settings',
+          onPress: () => Linking.openSettings(),
+        },
+      ],
+    );
+  };
+
+  const getCurrentLocation = useCallback(() => {
+    console.log(
+      'getCurrentLocation called with isLocationPermissionGranted:',
+      isLocationPermissionGranted,
+    );
+    if (!isLocationPermissionGranted) {
+      console.log(
+        'Location permission not granted, skipping location request.',
+      );
+      return;
+    }
+    if (!isLocationPermissionGranted) {
+      console.log(
+        'Location permission not granted, skipping location request.',
+      );
+      // Do not call requestLocationPermission here; handle it in initializeEnhancedLocation
+      return;
+    }
+
+    console.log('Getting enhanced current location...');
+    setIsLocationLoading(true);
+    setLocationError(null);
+
+    const attemptLocationRequest = (attemptNumber = 1) => {
+      const maxAttempts = 3;
+      const options = {
+        enableHighAccuracy: attemptNumber === 1,
+        timeout: attemptNumber === 1 ? 20000 : 15000,
+        maximumAge: attemptNumber === 1 ? 30000 : 60000,
+      };
+
+      console.log(
+        `Enhanced location request attempt ${attemptNumber}/${maxAttempts} with options:`,
+        options,
+      );
+
+      Geolocation.getCurrentPosition(
+        position => {
+          console.log(
+            `Enhanced location request successful on attempt ${attemptNumber}`,
+          );
+          handleLocationSuccess(position);
+        },
+        error => {
+          console.log(
+            `Enhanced location request failed on attempt ${attemptNumber}:`,
+            error,
+          );
+          if (attemptNumber < maxAttempts) {
+            console.log(
+              `Retrying enhanced location request (attempt ${
+                attemptNumber + 1
+              })...`,
+            );
+            setLocationError(
+              `Location attempt ${attemptNumber} failed, retrying with different settings...`,
+            );
+            setTimeout(() => {
+              attemptLocationRequest(attemptNumber + 1);
+            }, 1000);
+          } else {
+            handleLocationError(error);
+          }
+        },
+        options,
+      );
+    };
+
+    attemptLocationRequest(1);
+  }, [isLocationPermissionGranted]);
+  // Watch user location for real-time updates
+  const watchUserLocation = useCallback(() => {
+    if (!isLocationPermissionGranted) return;
+
+    locationWatchId.current = Geolocation.watchPosition(
+      position => {
+        const {latitude, longitude, accuracy} = position.coords;
+        console.log('Enhanced location updated:', {
+          latitude,
+          longitude,
+          accuracy,
+        });
+
+        // Update location with enhanced address formatting
+        handleLocationSuccess(position);
+      },
+      error => {
+        console.error('Error watching enhanced location:', error);
+      },
+      {
+        enableHighAccuracy: true,
+        distanceFilter: 10, // Update every 10 meters
+        interval: 5000, // Update every 5 seconds
+      },
+    );
+  }, [isLocationPermissionGranted]);
+
+  const isRequestingPermissionRef = useRef(false);
+
+  const initializeEnhancedLocation = useCallback(async () => {
+    if (isRequestingPermissionRef.current) {
+      console.log('Already requesting permission, skipping...');
+      return;
+    }
+
+    console.log('Initializing enhanced location services...');
+    isRequestingPermissionRef.current = true;
+
+    try {
+      const hasPermission = await requestLocationPermission();
+      if (hasPermission) {
+        getCurrentLocation();
+        watchUserLocation();
+      }
+    } finally {
+      isRequestingPermissionRef.current = false;
+    }
+  }, [getCurrentLocation, watchUserLocation]);
+  // Toggle route display
+  const toggleRoutes = () => {
+    setShowRoutes(!showRoutes);
+    console.log('Routes display toggled:', !showRoutes);
+  };
+
+  // Toggle heatmap display
+  const toggleHeatmap = () => {
+    const newHeatmapState = !showHeatmap;
+    setShowHeatmap(newHeatmapState);
+    console.log('Heatmap display toggled:', newHeatmapState);
+
+    if (newHeatmapState && heatmapData.length === 0) {
+      fetchHeatmapData();
+    }
+
+    // Hide routes when showing heatmap
+    if (newHeatmapState && showRoutes) {
+      setShowRoutes(false);
+    }
+  };
+
+  // Toggle heatmap controls
+  const toggleHeatmapControls = () => {
+    setShowHeatmapControls(!showHeatmapControls);
+  };
+
+  // Update heatmap filter
+  const updateHeatmapFilter = (filter: string, type = '') => {
+    setHeatmapFilter(filter);
+    setHeatmapType(type);
+    console.log('Heatmap filter updated:', {filter, type});
+  };
+
+  // Get bubble size based on intensity
+  const getBubbleSize = (intensity: number): number => {
+    const minSize = 40; // ⬆️ from 20
+    const maxSize = 120; // ⬆️ from 80
+    const capped = Math.min(intensity, 15);
+    return minSize + ((maxSize - minSize) * capped) / 15;
+  };
+
+  // Get bubble color based on intensity
+  const getBubbleColor = (intensity: number) => {
+    let baseColor = '255, 255, 255'; // fallback
+
+    if (intensity >= 15) baseColor = '255, 0, 0'; // 🔴 red
+    else if (intensity >= 10) baseColor = '255, 100, 0'; // 🟠 orange red
+    else if (intensity >= 7) baseColor = '255, 165, 0'; // 🟠 orange
+    else if (intensity >= 5) baseColor = '255, 215, 0'; // 🟡 gold
+    else if (intensity >= 3) baseColor = '144, 238, 144'; // 🟢 light green
+    else baseColor = '173, 190, 230'; // 🔵 light blue
+
+    return {
+      fill: `rgba(${baseColor}, 0.2)`, // soft background
+      border: `rgba(${baseColor}, 0.8)`, // bold outline
+    };
+  };
+
+  const scaleAnim = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    Animated.spring(scaleAnim, {
+      toValue: 1,
+      useNativeDriver: true,
+      friction: 5,
+    }).start();
+  }, []);
 
   // Reverse geocoding function to get address from coordinates
   const getAddressFromCoordinates = async (
@@ -374,26 +1011,232 @@ const DashboardScreen = () => {
       }
 
       const response = await Geocoding.from(latitude, longitude);
-
       let address = 'Location information unavailable';
 
       if (response.results && response.results.length > 0) {
-        // Get the most detailed address (usually the first result)
+        // Use enhanced address formatting
         const result = response.results[0];
-
-        // Extract the formatted address
-        address = result.formatted_address;
-
+        address = formatHumanReadableAddress(result);
         // Cache the result
         addressCache.current[cacheKey] = address;
       }
 
       return address;
-      // eslint-disable-next-line no-catch-shadow
     } catch (error: any) {
-      console.error('Error in reverse geocodinggg:', error.origin);
+      console.error('Error in reverse geocoding:', error.origin);
       return 'Error retrieving location';
     }
+  };
+
+  // Render heatmap bubbles
+  const renderHeatmapBubblesMarkers = () => {
+    if (!showHeatmap || heatmapData.length === 0) return null;
+
+    return heatmapData.map((point, index) => {
+      const [latitude, longitude, intensity] = point;
+      const bubbleSize = getBubbleSize(intensity);
+      const {fill, border} = getBubbleColor(intensity);
+
+      <View
+        style={{
+          width: bubbleSize,
+          height: bubbleSize,
+          backgroundColor: fill, // 🟦 soft inner fill
+          borderColor: border, // 🟥 bold outer ring
+          borderWidth: 3,
+          borderRadius: bubbleSize / 2,
+          justifyContent: 'center',
+          alignItems: 'center',
+        }}>
+        <Text
+          style={{
+            color: border,
+            fontWeight: 'bold',
+            fontSize: 12,
+            textShadowColor: 'rgba(0, 0, 0, 0.5)',
+            textShadowOffset: {width: 1, height: 1},
+            textShadowRadius: 1,
+          }}>
+          {intensity}
+        </Text>
+      </View>;
+
+      return (
+        <Marker
+          key={`heatmap-${index}`}
+          coordinate={{latitude, longitude}}
+          title={'Incident Hotspot'}
+          description={`Intensity: ${intensity} incidents`}>
+          <Animated.View
+            style={{
+              width: bubbleSize,
+              height: bubbleSize,
+              backgroundColor: fill, // 🟦 soft inner fill
+              borderColor: border, // 🟥 bold outer ring
+              borderWidth: 1,
+              borderRadius: bubbleSize / 2,
+              justifyContent: 'center',
+              alignItems: 'center',
+            }}>
+            {intensity > 1 && (
+              <Text
+                style={{
+                  color: border,
+                  fontWeight: 'normal',
+                  fontSize: 12,
+                  textShadowColor: 'rgba(0, 0, 0, 0.5)',
+                  textShadowOffset: {width: 1, height: 1},
+                  textShadowRadius: 1,
+                }}>
+                {intensity}
+              </Text>
+            )}
+          </Animated.View>
+        </Marker>
+      );
+    });
+  };
+
+  // Render heatmap controls
+  const renderHeatmapControlsFilters = () => {
+    if (!showHeatmapControls) return null;
+
+    const filterOptions = [
+      {id: 'last7days', label: '7 Days', icon: 'calendar-week'},
+      {id: 'last30days', label: '30 Days', icon: 'calendar-month'},
+      {id: 'last90days', label: '90 Days', icon: 'calendar-range'},
+    ];
+
+    const typeOptions = [
+      {id: '', label: 'All Types', icon: 'filter-variant'},
+      {id: 'fire', label: 'Fire', icon: 'fire'},
+      {id: 'medical', label: 'Medical', icon: 'medical-bag'},
+      {id: 'accident', label: 'Accident', icon: 'car-emergency'},
+      {id: 'crime', label: 'Crime', icon: 'alert-octagon'},
+      {id: 'flood', label: 'Flood', icon: 'water'},
+    ];
+
+    return (
+      <View style={styles.heatmapControlsOverlay}>
+        <View style={styles.heatmapControlsContainer}>
+          <View style={styles.heatmapControlsHeader}>
+            <Text style={styles.heatmapControlsTitle}>Heatmap Filters</Text>
+            <TouchableOpacity onPress={toggleHeatmapControls}>
+              <MaterialCommunityIcons name="close" size={20} color="#FFFFFF" />
+            </TouchableOpacity>
+          </View>
+
+          <ScrollView showsVerticalScrollIndicator={false}>
+            <Text style={styles.heatmapControlsLabel}>Time Period</Text>
+            <View style={styles.heatmapFilterRow}>
+              {filterOptions.map(option => (
+                <TouchableOpacity
+                  key={option.id}
+                  style={[
+                    styles.heatmapFilterButton,
+                    heatmapFilter === option.id &&
+                      styles.heatmapFilterButtonActive,
+                  ]}
+                  onPress={() => updateHeatmapFilter(option.id, heatmapType)}>
+                  <MaterialCommunityIcons
+                    name={option.icon}
+                    size={16}
+                    color={heatmapFilter === option.id ? '#FFFFFF' : '#8BABC7'}
+                  />
+                  <Text
+                    style={[
+                      styles.heatmapFilterButtonText,
+                      heatmapFilter === option.id &&
+                        styles.heatmapFilterButtonTextActive,
+                    ]}>
+                    {option.label}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+
+            <Text style={styles.heatmapControlsLabel}>Incident Type</Text>
+            <View style={styles.heatmapFilterRow}>
+              {typeOptions.map(option => (
+                <TouchableOpacity
+                  key={option.id}
+                  style={[
+                    styles.heatmapFilterButton,
+                    heatmapType === option.id &&
+                      styles.heatmapFilterButtonActive,
+                  ]}
+                  onPress={() => updateHeatmapFilter(heatmapFilter, option.id)}>
+                  <MaterialCommunityIcons
+                    name={option.icon}
+                    size={16}
+                    color={heatmapType === option.id ? '#FFFFFF' : '#8BABC7'}
+                  />
+                  <Text
+                    style={[
+                      styles.heatmapFilterButtonText,
+                      heatmapType === option.id &&
+                        styles.heatmapFilterButtonTextActive,
+                    ]}>
+                    {option.label}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+
+            <TouchableOpacity
+              style={styles.applyFiltersButton}
+              onPress={() => {
+                fetchHeatmapData();
+                setShowHeatmapControls(false);
+              }}
+              disabled={heatmapLoading}>
+              {heatmapLoading ? (
+                <ActivityIndicator size="small" color="#FFFFFF" />
+              ) : (
+                <>
+                  <MaterialCommunityIcons
+                    name="check"
+                    size={16}
+                    color="#FFFFFF"
+                  />
+                  <Text style={styles.applyFiltersButtonText}>
+                    Apply Filters
+                  </Text>
+                </>
+              )}
+            </TouchableOpacity>
+          </ScrollView>
+        </View>
+      </View>
+    );
+  };
+
+  // Render heatmap legend
+  const renderHeatmapLegendInfo = () => {
+    if (!showHeatmap) return null;
+
+    const legendItems = [
+      {color: 'rgba(255, 0, 0, 0.7)', label: '15+ Very High', range: '15+'},
+      {color: 'rgba(255, 69, 0, 0.7)', label: '10-14 High', range: '10-14'},
+      {color: 'rgba(255, 140, 0, 0.7)', label: '7-9 Med-High', range: '7-9'},
+      {color: 'rgba(255, 165, 0, 0.7)', label: '5-6 Medium', range: '5-6'},
+      {color: 'rgba(255, 215, 0, 0.7)', label: '3-4 Low-Med', range: '3-4'},
+      {color: 'rgba(173, 255, 47, 0.7)', label: '1-2 Low', range: '1-2'},
+    ];
+
+    return (
+      <View style={styles.heatmapLegendOverlay}>
+        <Text style={styles.heatmapLegendTitle}>Incident Intensity</Text>
+        {legendItems.map((item, index) => (
+          <View key={index} style={styles.heatmapLegendItem}>
+            <View
+              style={[styles.heatmapLegendColor, {backgroundColor: item.color}]}
+            />
+            <Text style={styles.heatmapLegendText}>{item.range}</Text>
+          </View>
+        ))}
+      </View>
+    );
   };
 
   // Function to transform API incident to app incident format
@@ -406,10 +1249,8 @@ const DashboardScreen = () => {
       INCIDENT_TYPES.Other;
 
     // Fix image URL if needed
-    let imageUrl = apiIncident.snapshotUrl;
-    if (imageUrl && !imageUrl.startsWith('http')) {
-      // Assuming your API base URL is defined somewhere
-      imageUrl = `${BASE_URL}:3000/${imageUrl}`;
+    const imageUrl = apiIncident.snapshotUrl;
+    if (imageUrl && imageUrl.startsWith('https')) {
       console.log('URL Image: ', imageUrl);
     }
 
@@ -442,10 +1283,8 @@ const DashboardScreen = () => {
 
     // Get address from coordinates (default to "Fetching location..." while we wait)
     let address = 'Fetching location...';
-
     try {
       address = await getAddressFromCoordinates(latitude, longitude);
-      // eslint-disable-next-line no-catch-shadow
     } catch (error) {
       console.error('Error getting address:', error);
       address = 'Location unavailable';
@@ -505,21 +1344,20 @@ const DashboardScreen = () => {
       isRefreshingRef.current = true;
       setLoading(true);
       setError(null);
-
       console.log('🔄 Fetching incidents from API...');
-      const response = await incidentService.getIncidents();
 
+      const response = await incidentService.getIncidents();
       if (response.success) {
         console.log(
           `✅ Successfully fetched ${response.data.length} incidents`,
         );
+
         // Transform incidents one by one (to handle async address lookup)
         const transformPromises = response.data.map(transformIncident);
         const transformedIncidents = await Promise.all(transformPromises);
 
         // Update the dismissed incidents list before setting the incidents
         updateDismissedIncidents(transformedIncidents);
-
         setIncidents(transformedIncidents);
       } else {
         console.error('❌ API Error:', response.message);
@@ -534,29 +1372,37 @@ const DashboardScreen = () => {
     }
   }, [updateDismissedIncidents]);
 
-  // Initial data fetch
+  // Initial data fetch and enhanced location setup
   useEffect(() => {
+    console.log('Dashboard initializing with enhanced location...');
     Geocoding.init(GOOGLE_API_KEY);
+    initializeEnhancedLocation();
     fetchIncidents();
-  }, [fetchIncidents]);
 
-  // Auto refresh when screen comes into focus (after actions like accept/dismiss)
+    return () => {
+      if (locationWatchId.current !== null) {
+        Geolocation.clearWatch(locationWatchId.current);
+        console.log('Enhanced location watch cleared');
+      }
+    };
+  }, [fetchIncidents]); // Remove initializeEnhancedLocation from dependencies
+
   useFocusEffect(
     useCallback(() => {
       console.log('🔄 Dashboard screen focused - scheduling auto refresh');
-
-      // Add a small delay to ensure the screen is fully focused before refreshing
       const refreshTimer = setTimeout(() => {
         console.log('🔄 Executing delayed auto refresh');
         fetchIncidents();
+        if (isLocationPermissionGranted) {
+          getCurrentLocation(); // Only refresh location if permission is granted
+        }
       }, 300);
 
       return () => {
-        // Cleanup function when screen loses focus
         clearTimeout(refreshTimer);
         console.log('Dashboard screen unfocused - cleared refresh timer');
       };
-    }, [fetchIncidents]),
+    }, [fetchIncidents, isLocationPermissionGranted, getCurrentLocation]),
   );
 
   // Function to format timestamp
@@ -579,6 +1425,12 @@ const DashboardScreen = () => {
       incident,
       source: 'dashboard',
     });
+  };
+
+  // Handle incident marker press (for route display)
+  const handleIncidentMarkerPress = (incident: Incident): void => {
+    setSelectedIncidentForRoute(incident);
+    console.log('Selected incident for route:', incident.id);
   };
 
   // Toggle between list and map view
@@ -618,7 +1470,6 @@ const DashboardScreen = () => {
 
     // Fallback to checking the incident.dismissers array
     if (!user?.id || !incident.dismissers) return false;
-
     return incident.dismissers.some(dismisser => dismisser.id === user.id);
   };
 
@@ -650,14 +1501,12 @@ const DashboardScreen = () => {
     );
 
     console.log('After type filter:', typeFiltered.length);
-
     return typeFiltered;
   };
 
   // Handle refresh
   const onRefresh = async (): Promise<void> => {
     console.log('Manual refresh triggered by pull-to-refresh');
-
     // If already refreshing, don't trigger another refresh
     if (refreshing || isRefreshingRef.current) {
       console.log('Already refreshing, skipping duplicate refresh');
@@ -667,6 +1516,10 @@ const DashboardScreen = () => {
     setRefreshing(true);
     try {
       await fetchIncidents();
+      // Also refresh location
+      if (isLocationPermissionGranted) {
+        getCurrentLocation();
+      }
       console.log('✅ Manual refresh completed successfully');
     } catch (err) {
       console.error('❌ Error during manual refresh:', err);
@@ -683,6 +1536,19 @@ const DashboardScreen = () => {
       mapRef.current.animateToRegion({
         latitude: SOCORRO_COORDINATES.latitude,
         longitude: SOCORRO_COORDINATES.longitude,
+        latitudeDelta: LATITUDE_DELTA,
+        longitudeDelta: LONGITUDE_DELTA,
+      });
+    }
+  };
+
+  // Center map on user location
+  const centerMapOnUserLocation = () => {
+    console.log('Centering map on user location');
+    if (mapRef.current && userLocation) {
+      mapRef.current.animateToRegion({
+        latitude: userLocation.latitude,
+        longitude: userLocation.longitude,
         latitudeDelta: LATITUDE_DELTA,
         longitudeDelta: LONGITUDE_DELTA,
       });
@@ -772,6 +1638,7 @@ const DashboardScreen = () => {
               </View>
             )}
           </View>
+
           <View style={styles.cardDetails}>
             <Text
               style={[
@@ -781,6 +1648,7 @@ const DashboardScreen = () => {
               numberOfLines={2}>
               {item.description}
             </Text>
+
             <View style={styles.cardFooter}>
               <View style={styles.locationContainer}>
                 <MaterialCommunityIcons
@@ -909,6 +1777,7 @@ const DashboardScreen = () => {
         }}
         title={incident.title}
         description={incident.description}
+        onPress={() => handleIncidentMarkerPress(incident)}
         onCalloutPress={() => handleIncidentPress(incident)}>
         <View style={styles.markerContainer}>
           <MaterialCommunityIcons
@@ -935,6 +1804,92 @@ const DashboardScreen = () => {
           </View>
         </Callout>
       </Marker>
+    ));
+  };
+
+  // Render enhanced user location marker
+  const renderUserLocationMarker = () => {
+    if (!userLocation) return null;
+
+    return (
+      <Marker
+        coordinate={{
+          latitude: userLocation.latitude,
+          longitude: userLocation.longitude,
+        }}
+        title="Your Location"
+        description={userLocation.address || 'You are here'}>
+        <View style={styles.userLocationMarker}>
+          <View style={styles.userLocationInner}>
+            <MaterialCommunityIcons name="account" size={16} color="#FFFFFF" />
+          </View>
+          {userLocation.accuracy && userLocation.accuracy > 50 && (
+            <View style={styles.accuracyIndicator}>
+              <Text style={styles.accuracyText}>
+                ±{Math.round(userLocation.accuracy)}m
+              </Text>
+            </View>
+          )}
+        </View>
+      </Marker>
+    );
+  };
+
+  // Render routes from user location to incidents
+  const renderRoutes = () => {
+    if (!showRoutes || !userLocation || !GOOGLE_API_KEY) return null;
+
+    const filteredIncidents = getFilteredIncidents();
+
+    // If a specific incident is selected, show route only to that incident
+    const incidentsToRoute = selectedIncidentForRoute
+      ? [selectedIncidentForRoute]
+      : filteredIncidents.slice(0, 3); // Limit to first 3 incidents to avoid too many routes
+
+    return incidentsToRoute.map(incident => (
+      <MapViewDirections
+        key={`route-${incident.id}`}
+        origin={{
+          latitude: userLocation.latitude,
+          longitude: userLocation.longitude,
+        }}
+        destination={{
+          latitude: incident.location.latitude,
+          longitude: incident.location.longitude,
+        }}
+        apikey={GOOGLE_API_KEY}
+        strokeWidth={4}
+        strokeColor={incident.type?.color || '#2C74B3'}
+        strokeColors={[incident.type?.color || '#2C74B3']}
+        lineDashPattern={
+          selectedIncidentForRoute?.id === incident.id ? [] : [10, 10]
+        }
+        onStart={params => {
+          console.log(
+            `Started routing between "${params.origin}" and "${params.destination}"`,
+          );
+        }}
+        onReady={result => {
+          console.log(`Distance: ${result.distance} km`);
+          console.log(`Duration: ${result.duration} min.`);
+
+          // If this is the selected incident route, fit the map to show the entire route
+          if (selectedIncidentForRoute?.id === incident.id && mapRef.current) {
+            mapRef.current.fitToCoordinates(result.coordinates, {
+              edgePadding: {
+                right: 50,
+                bottom: 50,
+                left: 50,
+                top: 50,
+              },
+              animated: true,
+            });
+          }
+        }}
+        onError={errorMessage => {
+          console.error('MapViewDirections Error:', errorMessage);
+        }}
+      />
     ));
   };
 
@@ -1039,6 +1994,38 @@ const DashboardScreen = () => {
     );
   };
 
+  // Render location status overlay
+  const renderLocationStatus = () => {
+    if (!isLocationLoading && !locationError) return null;
+
+    return (
+      <View style={styles.locationStatusOverlay}>
+        <View style={styles.locationStatusContainer}>
+          {isLocationLoading && (
+            <>
+              <ActivityIndicator size="small" color="#FFFFFF" />
+              <Text style={styles.locationStatusText}>
+                Getting your location...
+              </Text>
+            </>
+          )}
+          {locationError && (
+            <>
+              <MaterialCommunityIcons
+                name="map-marker-off"
+                size={16}
+                color="#FF5252"
+              />
+              <Text style={styles.locationErrorText} numberOfLines={2}>
+                {locationError}
+              </Text>
+            </>
+          )}
+        </View>
+      </View>
+    );
+  };
+
   // Update dismissed incidents when user ID or incidents change
   useEffect(() => {
     if (user?.id && incidents.length > 0) {
@@ -1059,6 +2046,15 @@ const DashboardScreen = () => {
               style={styles.headerIcon}
             />
             <Text style={styles.headerTitle}>Incoming Reports</Text>
+            {userLocation && (
+              <View style={styles.locationIndicator}>
+                <MaterialCommunityIcons
+                  name="map-marker-check"
+                  size={16}
+                  color="#4CAF50"
+                />
+              </View>
+            )}
           </View>
           <TouchableOpacity
             style={styles.viewToggle}
@@ -1119,13 +2115,20 @@ const DashboardScreen = () => {
               style={styles.map}
               customMapStyle={mapDarkStyle}
               initialRegion={{
-                latitude: SOCORRO_COORDINATES.latitude,
-                longitude: SOCORRO_COORDINATES.longitude,
+                latitude:
+                  userLocation?.latitude || SOCORRO_COORDINATES.latitude,
+                longitude:
+                  userLocation?.longitude || SOCORRO_COORDINATES.longitude,
                 latitudeDelta: LATITUDE_DELTA,
                 longitudeDelta: LONGITUDE_DELTA,
-              }}>
-              {renderMapMarkers()}
+              }}
+              showsUserLocation={false} // We'll use our custom marker
+              showsMyLocationButton={false}>
+              {showHeatmap ? renderHeatmapBubblesMarkers() : renderMapMarkers()}
+              {renderUserLocationMarker()}
+              {!showHeatmap && renderRoutes()}
             </MapView>
+
             <View style={styles.mapOverlay}>
               <TouchableOpacity style={styles.mapButton} onPress={onRefresh}>
                 <MaterialCommunityIcons
@@ -1134,30 +2137,278 @@ const DashboardScreen = () => {
                   color="#FFFFFF"
                 />
               </TouchableOpacity>
+
+              <TouchableOpacity
+                style={[
+                  styles.mapButton,
+                  !userLocation && styles.mapButtonDisabled,
+                ]}
+                onPress={centerMapOnUserLocation}
+                disabled={!userLocation}>
+                <MaterialCommunityIcons
+                  name="crosshairs-gps"
+                  size={22}
+                  color={userLocation ? '#FFFFFF' : '#5A5A5A'}
+                />
+              </TouchableOpacity>
+
               <TouchableOpacity
                 style={styles.mapButton}
                 onPress={centerMapOnSocorro}>
                 <MaterialCommunityIcons
-                  name="crosshairs-gps"
+                  name="home-map-marker"
                   size={22}
                   color="#FFFFFF"
                 />
               </TouchableOpacity>
+
+              <TouchableOpacity
+                style={[
+                  styles.mapButton,
+                  showRoutes && styles.mapButtonActive,
+                  !userLocation && styles.mapButtonDisabled,
+                ]}
+                onPress={toggleRoutes}
+                disabled={!userLocation}>
+                <MaterialCommunityIcons
+                  name="directions"
+                  size={22}
+                  color={userLocation ? '#FFFFFF' : '#5A5A5A'}
+                />
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={[
+                  styles.mapButton,
+                  showHeatmap && styles.mapButtonActive,
+                ]}
+                onPress={toggleHeatmap}>
+                <MaterialCommunityIcons name="fire" size={22} color="#FFFFFF" />
+              </TouchableOpacity>
+
+              {showHeatmap && (
+                <TouchableOpacity
+                  style={styles.mapButton}
+                  onPress={toggleHeatmapControls}>
+                  <MaterialCommunityIcons
+                    name="tune"
+                    size={22}
+                    color="#FFFFFF"
+                  />
+                </TouchableOpacity>
+              )}
+
+              {selectedIncidentForRoute && (
+                <TouchableOpacity
+                  style={styles.mapButton}
+                  onPress={() => setSelectedIncidentForRoute(null)}>
+                  <MaterialCommunityIcons
+                    name="close"
+                    size={22}
+                    color="#FFFFFF"
+                  />
+                </TouchableOpacity>
+              )}
+
+              {!isLocationPermissionGranted && (
+                <TouchableOpacity
+                  style={styles.mapButton}
+                  onPress={requestLocationPermission}>
+                  <MaterialCommunityIcons
+                    name="map-marker-plus"
+                    size={22}
+                    color="#FFFFFF"
+                  />
+                </TouchableOpacity>
+              )}
             </View>
+
+            {/* Route info overlay */}
+            {selectedIncidentForRoute && (
+              <View style={styles.routeInfoOverlay}>
+                <Text style={styles.routeInfoTitle}>
+                  Route to: {selectedIncidentForRoute.title}
+                </Text>
+                <Text style={styles.routeInfoAddress}>
+                  {selectedIncidentForRoute.location.address}
+                </Text>
+              </View>
+            )}
+
+            {/* User location info overlay */}
+            {userLocation && userLocation.address && (
+              <View style={styles.userLocationOverlay}>
+                <MaterialCommunityIcons
+                  name="account-circle"
+                  size={16}
+                  color="#2C74B3"
+                />
+                <Text style={styles.userLocationText} numberOfLines={1}>
+                  {userLocation.address}
+                </Text>
+              </View>
+            )}
+
+            {/* Render heatmap controls */}
+            {renderHeatmapControlsFilters()}
+
+            {/* Render heatmap legend */}
+            {renderHeatmapLegendInfo()}
           </View>
         )}
 
         {/* Render refresh indicator overlay */}
         {renderRefreshIndicator()}
+
+        {/* Render location status overlay */}
+        {renderLocationStatus()}
       </View>
     </SafeAreaView>
   );
 };
 
 const styles = StyleSheet.create({
+  // Heatmap styles
+  heatmapBubble: {
+    shadowColor: '#000',
+    shadowOffset: {width: 0, height: 4},
+    shadowOpacity: 0.3,
+    shadowRadius: 6,
+    elevation: 8, // for Android
+    borderWidth: 2,
+    borderColor: 'rgba(255,255,255,0.6)',
+
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  heatmapBubbleText: {
+    color: '#FFFFFF',
+    fontSize: 12,
+    fontWeight: 'bold',
+    textShadowColor: 'rgba(0, 0, 0, 0.8)',
+    textShadowOffset: {width: 1, height: 1},
+    textShadowRadius: 2,
+  },
+  heatmapControlsOverlay: {
+    position: 'absolute',
+    top: 16,
+    left: 16,
+    right: 16,
+    backgroundColor: 'rgba(10, 38, 71, 0.95)',
+    borderRadius: 12,
+    maxHeight: '80%',
+    borderWidth: 1,
+    borderColor: '#144272',
+    zIndex: 100,
+  },
+  heatmapControlsContainer: {
+    padding: 16,
+  },
+  heatmapControlsHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 16,
+    paddingBottom: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: '#144272',
+  },
+  heatmapControlsTitle: {
+    color: '#FFFFFF',
+    fontSize: 16,
+    fontWeight: 'bold',
+  },
+  heatmapControlsLabel: {
+    color: '#FFFFFF',
+    fontSize: 14,
+    fontWeight: '600',
+    marginBottom: 8,
+    marginTop: 12,
+  },
+  heatmapFilterRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    marginBottom: 8,
+  },
+  heatmapFilterButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#0D2137',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: '#144272',
+    minWidth: 80,
+  },
+  heatmapFilterButtonActive: {
+    backgroundColor: '#2C74B3',
+    borderColor: '#64B5F6',
+  },
+  heatmapFilterButtonText: {
+    color: '#8BABC7',
+    fontSize: 12,
+    marginLeft: 6,
+    fontWeight: '500',
+  },
+  heatmapFilterButtonTextActive: {
+    color: '#FFFFFF',
+  },
+  applyFiltersButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#2C74B3',
+    paddingVertical: 12,
+    borderRadius: 8,
+    marginTop: 16,
+    gap: 8,
+  },
+  applyFiltersButtonText: {
+    color: '#FFFFFF',
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  heatmapLegendOverlay: {
+    position: 'absolute',
+    top: 16,
+    left: 16,
+    backgroundColor: 'rgba(10, 38, 71, 0.9)',
+    borderRadius: 8,
+    padding: 12,
+    borderWidth: 1,
+    borderColor: '#144272',
+    minWidth: 120,
+  },
+  heatmapLegendTitle: {
+    color: '#FFFFFF',
+    fontSize: 12,
+    fontWeight: 'bold',
+    marginBottom: 8,
+    textAlign: 'center',
+  },
+  heatmapLegendItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 4,
+  },
+  heatmapLegendColor: {
+    width: 12,
+    height: 12,
+    borderRadius: 6,
+    marginRight: 8,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.3)',
+  },
+  heatmapLegendText: {
+    color: '#FFFFFF',
+    fontSize: 10,
+    fontWeight: '500',
+  },
   safeArea: {
     flex: 1,
-    backgroundColor: '#0A1929',
+    backgroundColor: '#000000ff',
   },
   container: {
     flex: 1,
@@ -1188,6 +2439,9 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontWeight: 'bold',
     color: '#FFFFFF',
+  },
+  locationIndicator: {
+    marginLeft: 8,
   },
   viewToggle: {
     padding: 10,
@@ -1433,6 +2687,115 @@ const styles = StyleSheet.create({
     elevation: 5,
     borderWidth: 1,
     borderColor: '#144272',
+  },
+  mapButtonActive: {
+    backgroundColor: '#2C74B3',
+    borderColor: '#64B5F6',
+  },
+  mapButtonDisabled: {
+    backgroundColor: '#0A1F35',
+    borderColor: '#0A1F35',
+  },
+  userLocationMarker: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: 'rgba(44, 116, 179, 0.3)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 2,
+    borderColor: '#FFFFFF',
+  },
+  userLocationInner: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    backgroundColor: '#2C74B3',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  accuracyIndicator: {
+    position: 'absolute',
+    bottom: -20,
+    backgroundColor: 'rgba(0, 0, 0, 0.7)',
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 8,
+  },
+  accuracyText: {
+    color: '#FFFFFF',
+    fontSize: 10,
+    fontWeight: '500',
+  },
+  routeInfoOverlay: {
+    position: 'absolute',
+    top: 16,
+    left: 16,
+    right: 80,
+    backgroundColor: 'rgba(10, 38, 71, 0.9)',
+    borderRadius: 8,
+    padding: 12,
+    borderWidth: 1,
+    borderColor: '#144272',
+  },
+  routeInfoTitle: {
+    color: '#FFFFFF',
+    fontSize: 14,
+    fontWeight: 'bold',
+    marginBottom: 4,
+  },
+  routeInfoAddress: {
+    color: '#8BABC7',
+    fontSize: 12,
+  },
+  userLocationOverlay: {
+    position: 'absolute',
+    bottom: 30,
+    left: 16,
+    right: 80,
+    backgroundColor: 'rgba(10, 38, 71, 0.9)',
+    borderRadius: 8,
+    padding: 8,
+    borderWidth: 1,
+    borderColor: '#144272',
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  userLocationText: {
+    color: '#FFFFFF',
+    fontSize: 12,
+    marginLeft: 6,
+    flex: 1,
+  },
+  locationStatusOverlay: {
+    position: 'absolute',
+    top: 120,
+    left: 16,
+    right: 16,
+    alignItems: 'center',
+    zIndex: 1000,
+  },
+  locationStatusContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(44, 116, 179, 0.9)',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 20,
+    maxWidth: '90%',
+  },
+  locationStatusText: {
+    color: '#FFFFFF',
+    marginLeft: 8,
+    fontSize: 12,
+    fontWeight: '500',
+  },
+  locationErrorText: {
+    color: '#FFFFFF',
+    marginLeft: 8,
+    fontSize: 11,
+    fontWeight: '500',
+    flex: 1,
   },
   loader: {
     flex: 1,
