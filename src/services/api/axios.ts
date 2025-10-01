@@ -8,10 +8,10 @@ import {
 } from '../../store/slices/authSlice';
 import {BASE_URL, AUTH_TOKEN_KEY} from '@env';
 
-// const baseURL = 'http://192.168.1.59';
+console.log('BASE URL AXIOS: ', BASE_URL);
 
 const instance = axios.create({
-  baseURL: `${BASE_URL}:3000/api`,
+  baseURL: `${BASE_URL}/api`,
   timeout: 20000,
   headers: {
     'Content-Type': 'application/json',
@@ -171,7 +171,7 @@ if (__DEV__) {
     },
     error => {
       console.log(
-        'API Error:',
+        'API Error: ',
         error.response?.status,
         error.config?.url,
         error.message,
