@@ -8,6 +8,7 @@ import {
 } from '../../store/slices/authSlice';
 import {BASE_URL, AUTH_TOKEN_KEY} from '@env';
 
+console.log('BASE URL AXIOSv2: ', BASE_URL);
 console.log('BASE URL AXIOS: ', BASE_URL);
 
 const instance = axios.create({

@@ -17,8 +17,6 @@ import {
   unsubscribeFromResponderTopic,
   initializeFCM,
 } from '../../services/firebase/fcmService';
-import {RootState} from '../../store/index';
-import {enableLegacyWebImplementation} from 'react-native-gesture-handler';
 
 interface User {
   id: number;
@@ -67,7 +65,7 @@ export const refreshAccessToken = createAsyncThunk(
 
       // Create a separate axios instance to avoid interceptor loops
       const refreshAxios = _axios.create({
-        baseURL: `${BASE_URL}:3000/api`,
+        baseURL: `${BASE_URL}/api`,
         timeout: 10000,
         headers: {
           'Content-Type': 'application/json',
@@ -78,10 +76,12 @@ export const refreshAccessToken = createAsyncThunk(
       // Send refresh token in the request - adapt based on your backend implementation
       const response = await refreshAxios.post(
         '/auth/refresh',
-        {},
+        {
+          refreshtoken: refreshToken,
+        },
         {
           headers: {
-            Cookie: `refreshToken=${refreshToken}`, // If using cookie-based refresh
+            'Content-Type': 'application/json',
           },
         },
       );
