@@ -1,4 +1,3 @@
-/* eslint-disable @typescript-eslint/no-unused-vars */
 // Updated authSlice.ts with Token Rotation - FIXED VERSION
 
 import {createSlice, PayloadAction, createAsyncThunk} from '@reduxjs/toolkit';
@@ -63,6 +62,11 @@ export const refreshAccessToken = createAsyncThunk(
         throw new Error('No refresh token available');
       }
 
+      console.log(
+        'Attempting token refresh with token:',
+        refreshToken.substring(0, 20) + '...',
+      ); // Debug log
+
       // Create a separate axios instance to avoid interceptor loops
       const refreshAxios = _axios.create({
         baseURL: `${BASE_URL}/api`,
@@ -70,56 +74,37 @@ export const refreshAccessToken = createAsyncThunk(
         headers: {
           'Content-Type': 'application/json',
         },
-        withCredentials: true,
       });
 
-      // Send refresh token in the request - adapt based on your backend implementation
-      const response = await refreshAxios.post(
-        '/auth/refresh',
-        {
-          refreshtoken: refreshToken,
-        },
-        {
-          headers: {
-            'Content-Type': 'application/json',
-          },
-        },
-      );
+      // Send refresh token in the request BODY (not headers)
+      const response = await refreshAxios.post('/auth/refresh', {
+        refreshToken: refreshToken, // ✅ CRITICAL: Send in body
+      });
 
-      // Handle different response formats
-      let newToken, newRefreshToken;
+      console.log('Refresh response:', response.data); // Debug log
 
+      // Handle response - your backend returns { success, message, data: { access, refresh } }
       if (response.data.success && response.data.data) {
-        // Format: { success: true, data: { access, refresh } }
         const {access, refresh} = response.data.data;
-        newToken = access;
-        newRefreshToken = refresh;
-      } else if (response.data.success && response.data.token) {
-        // Format: { success: true, token: "..." }
-        newToken = response.data.token;
-        newRefreshToken = refreshToken; // Keep existing refresh token
-      } else if (response.data.access) {
-        // Format: { access: "...", refresh?: "..." }
-        newToken = response.data.access;
-        newRefreshToken = response.data.refresh || refreshToken;
+
+        // Store both tokens
+        await AsyncStorage.setItem(AUTH_TOKEN_KEY, access);
+        await AsyncStorage.setItem(AUTH_REFRESH_TOKEN_KEY, refresh);
+
+        console.log('Token refreshed successfully');
+
+        return {
+          token: access,
+          refreshToken: refresh,
+        };
       } else {
         throw new Error('Invalid refresh response format');
       }
-
-      // Store both tokens
-      await AsyncStorage.setItem(AUTH_TOKEN_KEY, newToken);
-      if (newRefreshToken) {
-        await AsyncStorage.setItem(AUTH_REFRESH_TOKEN_KEY, newRefreshToken);
-      }
-
-      console.log('Token refreshed successfully');
-
-      return {
-        token: newToken,
-        refreshToken: newRefreshToken,
-      };
     } catch (error: any) {
-      console.error('Token refresh failed:', error);
+      console.error(
+        'Token refresh failed:',
+        error.response?.data || error.message,
+      );
 
       // If refresh fails, clear auth state
       await AsyncStorage.removeItem(AUTH_TOKEN_KEY);
@@ -135,7 +120,6 @@ export const refreshAccessToken = createAsyncThunk(
     }
   },
 );
-
 // Login user - Updated to handle topic subscription and refresh token
 export const loginUser = createAsyncThunk(
   'auth/loginUser',

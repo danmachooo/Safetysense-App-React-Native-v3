@@ -28,7 +28,7 @@ import incidentService from '../../services/api/incidentService';
 import {GOOGLE_API_KEY} from '@env';
 import Geocoding from 'react-native-geocoding';
 import {useAppSelector} from '../../store/hooks';
-
+import {ApiIncident} from './DashboardScreen';
 // Define navigation prop type
 type ReportsScreenNavigationProp = StackNavigationProp<
   ResponderStackParamList,
@@ -123,7 +123,7 @@ const ReportsScreen = () => {
           return addressCache.current[cacheKey];
         }
 
-        if (!GOOGLE_API_KEY || GOOGLE_API_KEY === 'YOUR_GOOGLE_API_KEY') {
+        if (!GOOGLE_API_KEY) {
           return 'Location information unavailable';
         }
 
@@ -145,19 +145,14 @@ const ReportsScreen = () => {
   );
   // Function to transform API incident to app incident format
   const transformIncident = useCallback(
-    async (apiIncident: any): Promise<Incident> => {
+    async (apiIncident: ApiIncident): Promise<Incident> => {
       // Get incident type info or use default
       const typeInfo =
         INCIDENT_TYPES[apiIncident.type as keyof typeof INCIDENT_TYPES] ||
         INCIDENT_TYPES.Other;
 
       // Fix image URL if needed
-      let imageUrl = apiIncident.snapshotUrl;
-      if (imageUrl && !imageUrl.startsWith('http')) {
-        // Assuming your API base URL is defined somewhere
-        const baseUrl = 'http://localhost:3000'; // Replace with your actual base URL
-        imageUrl = `${baseUrl}/${imageUrl}`;
-      }
+      let imageUrl = apiIncident.snapshotSignedUrl;
 
       // Transform accepters
       const transformedAccepters = apiIncident.accepters.map(
@@ -200,7 +195,7 @@ const ReportsScreen = () => {
         reportedBy: apiIncident.reportedBy,
         contact: apiIncident.contact,
         accepters: transformedAccepters,
-        resolvedAt: apiIncident.resolvedAt || undefined,
+        // resolvedAt: apiIncident.resolvedAt || undefined,
       };
     },
     [getAddressFromCoordinates],

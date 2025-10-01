@@ -31,7 +31,7 @@ import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityI
 import {SafeAreaView} from 'react-native-safe-area-context';
 import incidentService from '../services/api/incidentService';
 import {NetworkInfo} from 'react-native-network-info';
-
+import Imageresizer from 'react-native-image-resizer';
 Geocoder.init(GOOGLE_API_KEY);
 
 // Define types for location data
@@ -562,17 +562,32 @@ const ReportIncidentScreen = () => {
 
   // Function to upload image to server
   const uploadImage = async (imageUri: string): Promise<string | null> => {
-    if (!imageUri) {
-      return null;
-    }
+    if (!imageUri) return null;
 
     try {
       console.log('Starting image upload, URI:', imageUri);
+
+      // Compress image before uploading
+      const compressedImage = await Imageresizer.createResizedImage(
+        imageUri,
+        1920, // max width
+        1920, // max height
+        'JPEG',
+        80, // quality (0-100)
+        0, // rotation
+      );
+
+      console.log('Image compressed:', compressedImage.uri);
       setUploadProgress(0);
-      const imageUrl = await incidentService.uploadImage(imageUri, progress => {
-        setUploadProgress(progress);
-        console.log(`Upload progress: ${progress}%`);
-      });
+
+      const imageUrl = await incidentService.uploadImage(
+        compressedImage.uri,
+        progress => {
+          setUploadProgress(progress);
+          console.log(`Upload progress: ${progress}%`);
+        },
+      );
+
       console.log('Image upload successful, URL:', imageUrl);
       return imageUrl;
     } catch (error) {

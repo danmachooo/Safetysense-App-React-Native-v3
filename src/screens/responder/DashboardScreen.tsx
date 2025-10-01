@@ -81,13 +81,13 @@ const INCIDENT_TYPES = {
 };
 
 // Define API incident interface
-interface ApiIncident {
+export interface ApiIncident {
   id: number;
   cameraId: number | null;
   reportedBy: string;
   contact: string;
   type: string;
-  snapshotUrl: string;
+  snapshotSignedUrl: string;
   description: string;
   status: string;
   longitude: string;
@@ -1249,11 +1249,7 @@ const DashboardScreen = () => {
       INCIDENT_TYPES.Other;
 
     // Fix image URL if needed
-    const imageUrl = apiIncident.snapshotUrl;
-    if (imageUrl && imageUrl.startsWith('https')) {
-      console.log('URL Image: ', imageUrl);
-    }
-
+    const imageUrl = apiIncident.snapshotSignedUrl;
     // Transform accepters
     const transformedAccepters = apiIncident.accepters.map(accepter => ({
       id: accepter.id,
@@ -1346,7 +1342,7 @@ const DashboardScreen = () => {
       setError(null);
       console.log('🔄 Fetching incidents from API...');
 
-      const response = await incidentService.getIncidents();
+      const response = await incidentService.getIncidents({status: 'pending'});
       if (response.success) {
         console.log(
           `✅ Successfully fetched ${response.data.length} incidents`,
